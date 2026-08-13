@@ -1,0 +1,6 @@
+node_modules/
+trash/
+chats.json
+prefs.json
+idle-marks.json
+*.log

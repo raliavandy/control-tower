@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rals Cockpit</title>
+<link rel="icon" id="favicon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+<meta name="theme-color" content="#0b0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+window.FLEET_TOKEN = "__FLEET_TOKEN__";
+window.FLEET_PHONE = __FLEET_PHONE__;
+window.FLEET_PREFS = __FLEET_PREFS__;
+window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
+</script>
+</head>
+<body>
+<a class="skiplink" href="#board">Skip to the sessions</a>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="pulse" id="conn-dot" title="live connection"></span>
+    <span class="brand-name">Rals&nbsp;Cockpit</span>
+  </div>
+
+  <div class="segmented views" id="views" role="tablist">
+    <button data-view="sessions" class="on" role="tab">Sessions <span class="count" id="c-sessions">0</span></button>
+    <button data-view="mcp" role="tab">MCP <span class="count" id="c-mcp">·</span></button>
+    <button data-view="tools" role="tab">Skills <span class="count" id="c-skills">·</span></button>
+    <button data-view="rules" role="tab">Rules <span class="count" id="c-rules">·</span></button>
+    <button data-view="search" role="tab">Search</button>
+  </div>
+
+  <!-- The sparkline *is* the Usage tab: one control instead of a tab plus a badge. -->
+  <button class="usage-pill" id="usage-pill" data-view="usage" role="tab" title="Output tokens today — click for the full usage view (5)">
+    <span class="usage-pill-spark" id="usage-spark"></span>
+    <span class="usage-pill-copy"><b id="usage-pill-num">—</b><small>out today</small></span>
+  </button>
+
+  <h1 class="headline" id="headline">connecting…</h1>
+
+  <div class="topbar-right">
+    <button class="btn primary newchat" id="btn-new" aria-label="Start a new chat">+ New chat</button>
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+      <input id="search" type="search" placeholder="filter by title, project, branch…" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </label>
+    <a class="helpbtn" id="btn-help" href="/help.html" title="Every view, shortcut and setting explained — or press ?">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 9a2.9 2.9 0 115.6 1c0 2-2.8 2.3-2.8 4.2"/><path d="M12 18.2h.01"/><circle cx="12" cy="12" r="9.2"/></svg>
+      <span>How to</span>
+    </a>
+    <button class="icon-btn" id="btn-more" title="Alerts, theme, phone pairing" aria-label="More options">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="boardbar sessions-only">
+  <nav class="sections" id="sections" aria-label="Saved sections">
+    <button class="tabgroup on" data-section="" title="Every session, no section filter">everything</button>
+    <button class="tabgroup add" id="section-add" title="Make a new section" aria-label="Make a new section">+ section</button>
+  </nav>
+  <div class="boardbar-right">
+    <button class="link undismiss" id="undismiss" hidden></button>
+    <div class="segmented" id="filters" role="tablist">
+      <button data-filter="needs" role="tab">Needs me <span class="count" id="c-needs">0</span></button>
+      <button data-filter="live" role="tab" class="on">Live <span class="count" id="c-live">0</span></button>
+      <button data-filter="all" role="tab">All <span class="count" id="c-all">0</span></button>
+    </div>
+    <label class="grouper" title="Group the board (g)">
+      <select id="groupby" aria-label="Group the board">
+        <option value="none">flat</option>
+        <option value="project">by project</option>
+        <option value="status">by status</option>
+        <option value="branch">by branch</option>
+        <option value="section">by section</option>
+        <option value="origin">by where it started</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<main>
+  <section class="view" id="view-sessions">
+    <div class="board" id="board"></div>
+    <p class="empty" id="empty" hidden></p>
+    <footer class="legend">
+      <span><i class="dot working"></i>working</span>
+      <span><i class="dot waiting-for-you"></i>waiting for you</span>
+      <span><i class="dot blocked"></i>needs you — a quick tool call stalled, so probably a permission prompt</span>
+      <span><i class="dot long"></i>still running — a long command or subagent, not waiting on you</span>
+      <span><i class="dot done"></i>done — finished its turn a while ago, nothing pending</span>
+      <span><i class="dot idle"></i>idle — quiet for hours, or marked idle by you</span>
+      <span><i class="dot here"></i>in this page — a chat with no terminal, continue it in the panel</span>
+      <span><i class="dot ended"></i>ended</span>
+      <span class="legend-note">Status is inferred from each session's transcript — permission prompts aren't logged. A long <b>Bash</b> or subagent call reads as <b>still running</b> rather than needing you, and a session in auto or accept-edits mode is never called blocked, because it has no prompt to be waiting on. An amber <b>N queued</b> pill appears beside the status when a session has messages waiting in its own queue.</span>
+      <span class="legend-note keys"><b>/</b> filter · <b>j</b>/<b>k</b> move · <b>e</b> expand · <b>Enter</b> transcript · <b>r</b> reply · <b>Ctrl+Enter</b> send · <b>a</b> jump to #1 · <b>i</b> mark idle · <b>g</b> grouping · <b>s</b> sections · <b>1</b>–<b>6</b> views · <b>Esc</b> close · <a href="/help.html" class="legend-help">the full how-to →</a></span>
+    </footer>
+  </section>
+
+  <section class="view" id="view-mcp" hidden>
+    <p class="panel-note" id="mcp-note"></p>
+    <div class="inventory" id="mcp-list"></div>
+  </section>
+
+  <section class="view" id="view-tools" hidden>
+    <p class="panel-note" id="tools-note"></p>
+    <div class="inventory" id="tools-list"></div>
+  </section>
+
+  <section class="view" id="view-rules" hidden>
+    <p class="panel-note" id="rules-note"></p>
+    <div class="inventory" id="rules-list"></div>
+  </section>
+
+  <section class="view" id="view-search" hidden>
+    <p class="panel-note" id="search-note">Search every word of every transcript — not just titles and prompts.</p>
+    <form class="bigsearch" id="search-form">
+      <input id="deep-q" type="search" placeholder="e.g. tally slip, CARRIAGE, primeng pin…" autocomplete="off" spellcheck="false" aria-label="Search transcripts">
+      <button class="btn primary" type="submit">Search</button>
+    </form>
+    <div class="hits" id="hits"></div>
+  </section>
+
+  <section class="view" id="view-usage" hidden>
+    <p class="panel-note" id="usage-note"></p>
+    <p class="panel-note ratelimit" id="usage-ratelimit" hidden></p>
+    <p class="fig-allrow"><button class="link" id="fig-all">minimise all</button></p>
+
+    <figure class="figure" id="fig-totals">
+      <figcaption>
+        <button class="fig-toggle" title="Minimise">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="fig-title">Totals</span>
+        </button>
+      </figcaption>
+      <div class="fig-body">
+        <div class="tiles" id="usage-tiles"></div>
+      </div>
+    </figure>
+
+    <figure class="figure" id="fig-perday">
+      <figcaption>
+        <button class="fig-toggle" title="Minimise">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="fig-title">Output tokens per day</span>
+        </button>
+        <span class="spacer"></span>
+        <div class="fig-controls">
+          <div class="segmented mini" id="usage-range" role="tablist">
+            <button data-days="14" role="tab">14d</button>
+            <button data-days="30" class="on" role="tab">30d</button>
+            <button data-days="90" role="tab">90d</button>
+            <button data-days="0" role="tab">all</button>
+          </div>
+          <button class="link" id="usage-table-toggle">show as table</button>
+        </div>
+      </figcaption>
+      <div class="fig-body">
+        <div class="chart" id="usage-chart"></div>
+        <div class="chart-table" id="usage-chart-table" hidden></div>
+      </div>
+    </figure>
+
+    <div class="usage-splits">
+      <figure class="figure" id="fig-models">
+        <figcaption>
+          <button class="fig-toggle" title="Minimise">
+            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            <span class="fig-title">By model</span>
+          </button>
+        </figcaption>
+        <div class="fig-body"><div class="ranks" id="usage-models"></div></div>
+      </figure>
+      <figure class="figure" id="fig-projects">
+        <figcaption>
+          <button class="fig-toggle" title="Minimise">
+            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            <span class="fig-title">By project</span>
+          </button>
+        </figcaption>
+        <div class="fig-body"><div class="ranks" id="usage-projects"></div></div>
+      </figure>
+    </div>
+
+    <figure class="figure" id="fig-caveat">
+      <figcaption>
+        <button class="fig-toggle" title="Minimise">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="fig-title">What this is not</span>
+        </button>
+      </figcaption>
+      <div class="fig-body"><p class="panel-note" id="usage-caveat"></p></div>
+    </figure>
+  </section>
+</main>
+
+<!-- transcript slide-over -->
+<div class="drawer-scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Transcript">
+  <header>
+    <div class="drawer-head">
+      <h2 id="drawer-title">Transcript</h2>
+      <p class="drawer-sub" id="drawer-sub"></p>
+    </div>
+    <button class="icon-btn" id="drawer-close" title="Close (Esc)" aria-label="Close this conversation panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="drawer-tools">
+      <div class="segmented mini" id="drawer-who" role="tablist">
+        <button data-who="all" class="on" role="tab">everything</button>
+        <button data-who="you" role="tab">your questions <span class="count" id="c-you">0</span></button>
+        <button data-who="claude" role="tab">Claude</button>
+      </div>
+      <label class="search mini">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+        <input id="drawer-find" type="search" placeholder="find in this chat…" autocomplete="off" spellcheck="false">
+      </label>
+      <span class="spacer"></span>
+      <span class="drawer-count" id="drawer-count"></span>
+      <button class="link" id="drawer-export" title="Download this conversation as Markdown">export</button>
+      <button class="link" id="drawer-more" hidden>load more</button>
+    </div>
+  </header>
+  <div class="drawer-body" id="drawer-body"></div>
+  <footer class="drawer-foot">
+    <label class="field newchat-only" id="new-folder-field" hidden>
+      <span>Folder for the new chat</span>
+      <select id="new-folder"></select>
+    </label>
+    <div class="shots" id="drawer-shots" hidden></div>
+    <p class="run-status" id="run-status" hidden></p>
+    <div class="drawer-compose">
+      <textarea id="drawer-reply" rows="2" placeholder="Ask here — the answer streams into this page (Ctrl+Enter)"></textarea>
+      <button class="btn primary" id="drawer-send">Send</button>
+      <button class="btn stop" id="drawer-stop" hidden>Stop</button>
+    </div>
+    <div class="compose-controls">
+      <label class="mini-field">
+        <span>can</span>
+        <select id="chat-stance" title="Print mode cannot ask you about a tool call, so this is agreed up front">
+          <option value="read">read only</option>
+          <option value="edit">read + edit files</option>
+          <option value="full">anything, no prompts</option>
+        </select>
+      </label>
+      <label class="mini-field"><span>model</span><select id="chat-model"></select></label>
+      <label class="mini-field"><span>effort</span><select id="chat-effort"></select></label>
+      <span class="spacer"></span>
+      <button class="link" id="drawer-terminal" title="Open the real interactive TUI in a terminal instead">open in terminal</button>
+    </div>
+  </footer>
+</aside>
+
+<!-- Editing a rule, a skill or an MCP server. -->
+<div class="modal-scrim" id="ed-scrim" hidden></div>
+<section class="modal" id="editor" hidden role="dialog" aria-label="Edit">
+  <header>
+    <div class="ed-head">
+      <h2 id="ed-title">Edit</h2>
+      <p class="drawer-sub" id="ed-sub"></p>
+    </div>
+    <button class="icon-btn" id="ed-close" title="Close (Esc)" aria-label="Close the editor">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+
+  <div class="ed-body">
+    <textarea id="ed-text" spellcheck="false" placeholder="file contents…"></textarea>
+
+    <div class="ed-form" id="ed-form" hidden>
+      <label class="field"><span>Server name</span><input id="ed-mcp-name" type="text" spellcheck="false" placeholder="my-server"></label>
+      <label class="field"><span>Where it lives</span><select id="ed-mcp-scope"></select></label>
+      <label class="field"><span>Transport</span>
+        <select id="ed-mcp-transport">
+          <option value="stdio">stdio — run a command</option>
+          <option value="http">http — a URL</option>
+          <option value="sse">sse — a streaming URL</option>
+        </select>
+      </label>
+      <label class="field stdio-only"><span>Command</span><input id="ed-mcp-command" type="text" spellcheck="false" placeholder="npx"></label>
+      <label class="field stdio-only"><span>Arguments</span><input id="ed-mcp-args" type="text" spellcheck="false" placeholder="-y mcp-remote https://host/mcp"></label>
+      <label class="field stdio-only"><span>Environment — one NAME=value per line</span><textarea id="ed-mcp-env" rows="3" spellcheck="false"></textarea></label>
+      <label class="field url-only" hidden><span>URL</span><input id="ed-mcp-url" type="text" spellcheck="false" placeholder="https://host/mcp"></label>
+    </div>
+
+    <div class="ed-form" id="ed-hookform" hidden>
+      <label class="field">
+        <span>When</span>
+        <select id="ed-hook-event">
+          <option value="PostToolUse">after a tool runs — PostToolUse</option>
+          <option value="PreToolUse">before a tool runs — PreToolUse</option>
+          <option value="UserPromptSubmit">when you send a message — UserPromptSubmit</option>
+          <option value="Stop">when a session stops — Stop</option>
+          <option value="SessionStart">when a session starts — SessionStart</option>
+          <option value="Notification">on a notification — Notification</option>
+        </select>
+      </label>
+      <label class="field"><span>Only for (blank = everything)</span><input id="ed-hook-matcher" type="text" spellcheck="false" placeholder="Edit|Write"></label>
+      <label class="field"><span>Run this command</span><textarea id="ed-hook-command" rows="3" spellcheck="false" placeholder="npx prettier --write $CLAUDE_FILE_PATHS"></textarea></label>
+    </div>
+
+    <div class="ed-history" id="ed-history" hidden></div>
+  </div>
+
+  <footer>
+    <span class="ed-note" id="ed-note"></span>
+    <span class="spacer"></span>
+    <button class="btn" id="ed-history-btn" hidden>History</button>
+    <button class="btn danger" id="ed-delete" hidden>Delete</button>
+    <button class="btn" id="ed-cancel">Cancel</button>
+    <button class="btn primary" id="ed-save">Save</button>
+  </footer>
+</section>
+
+<!-- One pill per conversation that is still answering off-screen. -->
+<div class="runtray" id="runtray" hidden aria-live="polite" aria-label="Chats still answering"></div>
+
+<div class="toasts" id="toasts"></div>
+
+<template id="card-tpl">
+  <article class="card" tabindex="0">
+    <div class="stripe"></div>
+    <div class="card-main">
+      <div class="row title-row">
+        <span class="sprite-slot"></span>
+        <h3 class="title"></h3>
+        <span class="pill"></span>
+        <span class="qpill" hidden></span>
+        <span class="rank" hidden></span>
+        <span class="spacer"></span>
+        <time class="ago"></time>
+        <button class="card-expand" title="Show the recent conversation (e)" aria-label="Show the recent conversation">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="card-x act-dismiss" title="Dismiss this card" aria-label="Dismiss this card">×</button>
+      </div>
+      <div class="row chips"></div>
+      <p class="prompt"></p>
+      <p class="activity"></p>
+      <div class="card-convo" hidden></div>
+      <div class="shots" hidden></div>
+      <div class="reply">
+        <textarea rows="1" placeholder="Reply — Ctrl+Enter to send…" spellcheck="false"></textarea>
+        <button class="btn primary send">Send</button>
+      </div>
+      <div class="row actions">
+        <span class="path"></span>
+        <button class="link act-transcript">transcript</button>
+        <button class="link act-sections">sections</button>
+        <button class="link act-copy" title="Copy `claude --resume <id>` to the clipboard">copy cmd</button>
+        <button class="link act-code" title="Open this folder in VS Code">VS Code</button>
+        <button class="link act-folder" title="Open this folder in Explorer">folder</button>
+        <span class="spacer"></span>
+        <button class="link act-forget" hidden title="Stop pinning this in-page chat to the board">forget</button>
+        <button class="link act-idle">mark idle</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="group-tpl">
+  <section class="group">
+    <button class="group-head">
+      <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      <span class="group-name"></span>
+      <span class="count group-count"></span>
+      <span class="group-hot" hidden></span>
+    </button>
+    <div class="group-body"></div>
+  </section>
+</template>
+
+<script src="/pixel.js"></script>
+<script src="/app-core.js"></script>
+<script src="/app-shots.js"></script>
+<script src="/app-cards.js"></script>
+<script src="/app-board.js"></script>
+<script src="/app-menus.js"></script>
+<script src="/app-inventory.js"></script>
+<script src="/app-usage.js"></script>
+<script src="/app-search.js"></script>
+<script src="/app-chat.js"></script>
+<script src="/app-drawer.js"></script>
+<script src="/app-chrome.js"></script>
+</body>
+</html>

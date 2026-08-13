@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rals Cockpit — how to</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/help.css">
+</head>
+<body class="helpbody">
+
+<a class="skiplink" href="#keys">Skip to the shortcuts</a>
+
+<header class="hh">
+  <div>
+    <p class="hh-eyebrow">Rals Cockpit</p>
+    <h1>Everything it does, and how to reach it</h1>
+    <p class="hh-sub">
+      One screen for every Claude Code session on this machine. This page is served by the app
+      itself at <code>/help.html</code>, so it can never drift from the build you are running.
+    </p>
+  </div>
+  <a class="hh-back" href="/">← back to the board</a>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#start">Starting it</a>
+  <a href="#views">The six views</a>
+  <a href="#board">The board</a>
+  <a href="#status">What each status means</a>
+  <a href="#origin">Where a chat came from</a>
+  <a href="#chat">Chatting in the page</a>
+  <a href="#edit">Editing rules &amp; servers</a>
+  <a href="#keys">Every shortcut</a>
+  <a href="#phone">Your phone</a>
+  <a href="#env">Settings &amp; env vars</a>
+  <a href="#api">The API</a>
+  <a href="#limits">What it cannot do</a>
+  <a href="#tests">Tests</a>
+</nav>
+
+<main class="hmain">
+
+<section id="start">
+  <h2>Starting it</h2>
+  <table class="ht">
+    <tr><th>Do this</th><th>What happens</th></tr>
+    <tr><td><b>start.cmd</b></td><td>Serves <a href="http://localhost:7457/">localhost:7457</a> and opens your browser. The server window opens <b>minimised</b> — it lives in the taskbar as <em>Rals Cockpit</em>. Run it again while it is already up and it just opens the page.</td></tr>
+    <tr><td><b>start-phone.cmd</b></td><td>Same, but reachable from your phone on this Wi-Fi. Prints an access code — it does not minimise, because you need to read that code.</td></tr>
+    <tr><td>Close the server window</td><td>Stops the server. There is no stop button in the page.</td></tr>
+    <tr><td>Restart it with the page open</td><td>Fine. The write token belongs to one server run, so the page quietly picks up the new one and retries — it used to fail every write with <em>bad token</em> until you reloaded.</td></tr>
+  </table>
+  <p class="note">Nothing is installed and nothing leaves the machine. The server binds to 127.0.0.1 unless you deliberately start it in phone mode.</p>
+</section>
+
+<section id="views">
+  <h2>The six views</h2>
+  <table class="ht">
+    <tr><th>View</th><th>Key</th><th>What it is for</th></tr>
+    <tr><td><b>Sessions</b></td><td><kbd>1</kbd></td><td>The board. Every session, what it is doing, and a box to talk to it.</td></tr>
+    <tr><td><b>MCP</b></td><td><kbd>2</kbd></td><td>Every MCP server this machine knows about, which projects enable it, which need authorising, and how many calls your sessions have actually made to it.</td></tr>
+    <tr><td><b>Skills</b></td><td><kbd>3</kbd></td><td>Skills, subagents and slash commands, grouped by where they come from, with how often you have run each.</td></tr>
+    <tr><td><b>Rules</b></td><td><kbd>4</kbd></td><td>Everything Claude treats as standing instruction: remembered facts, CLAUDE.md files, hooks, and every permission rule you have approved.</td></tr>
+    <tr><td><b>Search</b></td><td><kbd>5</kbd></td><td>Reads every word of every transcript. Two characters minimum.</td></tr>
+    <tr><td><b>Usage</b></td><td><kbd>6</kbd></td><td>The sparkline pill <em>is</em> this tab. Tokens per day, splits by model and project, and your live rate-limit window.</td></tr>
+  </table>
+</section>
+
+<section id="board">
+  <h2>The board</h2>
+
+  <h3>Finding things</h3>
+  <table class="ht">
+    <tr><th>Control</th><th>What it does</th></tr>
+    <tr><td><b>the second row</b></td><td>Everything that narrows the board lives here: your sections on the left, the filters and grouping on the right. The top bar above it is only ever <em>where am I</em> plus the things you do regardless of the board.</td></tr>
+    <tr><td><b>Needs me / Live / All</b></td><td>Live counts running sessions <em>and</em> chats living in this page. Every count matches the cards on screen — if a number and the board disagree, that is a bug.</td></tr>
+    <tr><td><b>filter box</b> <kbd>/</kbd></td><td>Matches title, project, branch, prompt, cwd, id, and the MCP servers and skills a session has used.</td></tr>
+    <tr><td><b>grouping</b> <kbd>g</kbd></td><td>flat · by project · by status · by branch · by section · by where it started. Group headers collapse and remember it.</td></tr>
+    <tr><td><b>sections</b> <kbd>s</kbd> / <kbd>S</kbd></td><td>Your own tab groups. <b>+ section</b> makes an empty one; the <b>sections</b> link on a card adds or removes it. A section holds <em>exactly</em> what you put in it — nothing arrives by itself.</td></tr>
+  </table>
+
+  <h3>A card</h3>
+  <table class="ht">
+    <tr><th>On the card</th><th>Meaning</th></tr>
+    <tr><td>pixel mascot</td><td>Its mood is the status. Working has ticking dots, needs-you twitches with a <code>!</code>, idle sleeps with <code>z</code>, ended is lights-out.</td></tr>
+    <tr><td><b>next up</b> / <b>#2</b>, <b>#3</b></td><td>The queue of sessions waiting on you. A stalled tool call outranks a finished turn, and the longest wait wins. <kbd>a</kbd> jumps to the first.</td></tr>
+    <tr><td><b>N queued</b></td><td>Amber pill beside the status: messages waiting in that session's own queue. It will pick them up when the current turn ends.</td></tr>
+    <tr><td>model / effort chips</td><td>Clickable. Picking a value reopens the chat with <code>--model</code> or <code>--effort</code> set — see <a href="#chat">chatting</a> for why it has to reopen.</td></tr>
+    <tr><td>chevron <kbd>e</kbd></td><td>Unfolds the last dozen messages inside the card, tool calls included. Refetches only when that session actually moves.</td></tr>
+    <tr><td><b>×</b></td><td>Dismiss. The headline then says <em>N dismissed</em> and a <b>bring back</b> link appears — nothing disappears silently.</td></tr>
+    <tr><td><b>mark idle</b> <kbd>i</kbd></td><td>"I have dealt with this one." It leaves the attention queue until the session moves again.</td></tr>
+    <tr><td><b>forget</b></td><td>Only on chats started here: stops pinning it to the board. The transcript is untouched.</td></tr>
+    <tr><td><b>transcript</b> <kbd>Enter</kbd></td><td>Opens the full conversation panel.</td></tr>
+  </table>
+</section>
+
+<section id="status">
+  <h2>What each status means</h2>
+  <p class="note">
+    Status is <b>inferred</b>. Permission prompts and idle-waiting are never written to a transcript,
+    so this is a well-informed guess, not a reading.
+  </p>
+  <table class="ht">
+    <tr><th>Status</th><th>What it is telling you</th></tr>
+    <tr><td><span class="sw working"></span><b>working</b></td><td>A tool call is in flight, or Claude is mid-turn.</td></tr>
+    <tr><td><span class="sw waiting"></span><b>waiting for you</b></td><td>Claude handed back within the last 10 minutes. You are probably still in the loop.</td></tr>
+    <tr><td><span class="sw blocked"></span><b>needs you</b></td><td>A <em>quick</em> tool call (an edit, a write) has been pending too long, so it is probably sitting on a permission prompt.</td></tr>
+    <tr><td><span class="sw long"></span><b>still running</b></td><td>A long <code>Bash</code>, subagent or MCP call. <b>Not</b> waiting on you, and deliberately out of the attention queue — a five-minute test run used to announce itself as needing you.</td></tr>
+    <tr><td><span class="sw done"></span><b>done</b></td><td>Finished its turn more than 10 minutes ago with nothing pending. Out of the queue.</td></tr>
+    <tr><td><span class="sw idle"></span><b>idle</b></td><td>Quiet for hours, or marked idle by you.</td></tr>
+    <tr><td><span class="sw here"></span><b>in this page</b></td><td>A chat with no terminal behind it. Open it and carry on.</td></tr>
+    <tr><td><span class="sw ended"></span><b>ended</b></td><td>No live process. Still resumable from history.</td></tr>
+  </table>
+  <p class="note">
+    Two things keep the guess honest: slow tools get two minutes of patience before they even
+    become <em>still running</em>, and a session in <code>auto</code>, <code>acceptEdits</code>,
+    <code>bypassPermissions</code>, <code>dontAsk</code> or <code>plan</code> mode is never called
+    blocked — it has no prompt to be waiting on.
+  </p>
+</section>
+
+<section id="origin">
+  <h2>Where a chat came from</h2>
+  <p>
+    Every card carries a chip saying where that session began. Claude Code stamps each transcript
+    row with an entrypoint, so this is read, not guessed.
+  </p>
+  <table class="ht">
+    <tr><th>Chip</th><th>Means</th></tr>
+    <tr><td><span class="chip origin origin-terminal">terminal</span></td><td>Started with <code>claude</code> on a command line.</td></tr>
+    <tr><td><span class="chip origin origin-vscode">VS Code</span></td><td>Started from the VS Code extension.</td></tr>
+    <tr><td><span class="chip origin origin-desktop">Claude app</span></td><td>Started from the Claude desktop app.</td></tr>
+    <tr><td><span class="chip origin origin-web">claude.ai</span></td><td>Started from the web.</td></tr>
+    <tr><td><span class="chip origin origin-page">this page</span></td><td>Started here, headless. There is no terminal behind it.</td></tr>
+    <tr><td><span class="chip origin origin-unknown">unknown</span></td><td>Nothing in the transcript says.</td></tr>
+  </table>
+  <p class="note">
+    A session can begin in one place and be continued in another. The chip is where it
+    <em>started</em>; a separate <b>N turns here</b> chip counts the messages you have sent it from
+    this dashboard. Group the board <b>by where it started</b> to see the split.
+  </p>
+</section>
+
+<section id="chat">
+  <h2>Chatting in the page</h2>
+  <p>
+    <b>+ New chat</b> starts a conversation that happens right here. Pick a folder, type,
+    <kbd>Ctrl</kbd>+<kbd>Enter</kbd>. The answer streams in, tool calls appear as chips, and the
+    panel reloads the saved transcript when the turn ends. Replying from a card does the same thing
+    and opens the panel so you can watch.
+  </p>
+  <pre class="code">claude -p "&lt;your message&gt;" --verbose --output-format stream-json --include-partial-messages \
+  [--resume &lt;id&gt; | --session-id &lt;new uuid&gt;] [--model …] [--effort …]</pre>
+
+  <h3>What it is allowed to touch</h3>
+  <p class="note">
+    Print mode has <b>no way to ask you about a tool call</b> — there is no permission-prompt hook in
+    this CLI — so it has to be agreed before the turn starts. That is the <b>can</b> selector.
+  </p>
+  <table class="ht">
+    <tr><th>Stance</th><th>What it passes</th></tr>
+    <tr><td><b>read only</b> <em>(default)</em></td><td><code>--allowedTools Read Grep Glob NotebookRead WebFetch WebSearch TodoWrite Skill</code> — nothing can be written, so nothing needs asking.</td></tr>
+    <tr><td><b>read + edit files</b></td><td><code>--permission-mode acceptEdits</code> — file edits go through without asking.</td></tr>
+    <tr><td><b>anything, no prompts</b></td><td><code>--permission-mode bypassPermissions</code>. <b>Refused for anything but this machine</b> — a paired phone cannot select it.</td></tr>
+  </table>
+
+  <h3>The rest of the panel</h3>
+  <table class="ht">
+    <tr><th>Thing</th><th>What it does</th></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Sends. <kbd>Enter</kbd> is only ever a newline.</td></tr>
+    <tr><td>paste or drop an image</td><td>Up to six, 8 MB each. They are written next to the prompt and the message points Claude at the paths, because there is no flag for attaching one.</td></tr>
+    <tr><td>close mid-answer</td><td>Fine. The run lives on the server; a pill appears bottom-right with its status, <em>open</em> and <em>stop</em>. Several can run at once, one pill each.</td></tr>
+    <tr><td>answer lands off-screen</td><td>A toast, plus a desktop notification if you have alerts on.</td></tr>
+    <tr><td><b>everything / your questions / Claude</b></td><td>Filters the transcript. <em>Your questions</em> strips every tool result and subagent turn.</td></tr>
+    <tr><td><b>find in this chat</b></td><td>Text search over the loaded window, matches highlighted, with <em>show in context</em> to jump back into the full log.</td></tr>
+    <tr><td><b>load more</b></td><td>Grows the window from the last 80 messages up to 400.</td></tr>
+    <tr><td><b>export</b></td><td>Downloads the conversation as Markdown.</td></tr>
+    <tr><td><b>open in terminal</b></td><td>The real interactive TUI, for anything print mode cannot do — including proper permission prompts.</td></tr>
+  </table>
+  <p class="note">
+    Claude Code cannot retune a session that is already running, so changing model or effort opens a
+    <em>new</em> window on the same history. Whatever window is already running it keeps its own settings.
+  </p>
+</section>
+
+<section id="edit">
+  <h2>Editing rules, skills and MCP servers</h2>
+  <p>
+    Every row that belongs to you has <b>edit</b>, every section a <b>+ new …</b>, permission rules an
+    <b>×</b> each, and any editable file a <b>history</b>. Text files open in an editor
+    (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves). MCP servers and hooks open as forms, so a typo cannot
+    corrupt anything.
+  </p>
+  <table class="ht">
+    <tr><th>Guard rail</th><th>Why</th></tr>
+    <tr><td>The page can only name a file the server already published</td><td>An absolute path or a <code>../</code> traversal is refused outright.</td></tr>
+    <tr><td>Marketplace plugin copies are read-only</td><td>An edit there is erased by the next plugin update, so it is not offered.</td></tr>
+    <tr><td>New files get their path built server-side</td><td>From a validated name plus a known scope, never from what the page sends.</td></tr>
+    <tr><td>Every write and delete copies the original to <code>trash/</code></td><td>Nothing is unrecoverable. <b>history</b> reads that folder back, with <em>view</em> and <em>restore</em>. Capped at 200 versions.</td></tr>
+    <tr><td>Writes are atomic and JSON is re-parsed off disk before the rename</td><td><code>~/.claude.json</code> also holds your account and every project record. Only its <code>mcpServers</code> key is ever touched, and deleting that file is refused.</td></tr>
+    <tr><td>Adding an <b>allow</b> rule asks you to confirm</td><td>It means Claude stops asking about that thing from then on.</td></tr>
+  </table>
+  <p class="note">A new or changed MCP server is picked up by the <em>next</em> Claude session, not a running one.</p>
+</section>
+
+<section id="keys">
+  <h2>Every shortcut</h2>
+  <div class="keys">
+    <div><kbd>/</kbd><span>focus the filter box</span></div>
+    <div><kbd>1</kbd>–<kbd>6</kbd><span>switch view</span></div>
+    <div><kbd>j</kbd> <kbd>k</kbd><span>move down / up the board</span></div>
+    <div><kbd>e</kbd><span>expand or fold the selected card</span></div>
+    <div><kbd>Enter</kbd><span>open the selected card's transcript</span></div>
+    <div><kbd>r</kbd><span>jump into the selected card's reply box</span></div>
+    <div><kbd>Ctrl</kbd>+<kbd>Enter</kbd><span>send — anywhere you can type a message</span></div>
+    <div><kbd>a</kbd><span>jump to whatever is next up</span></div>
+    <div><kbd>i</kbd><span>mark the selected session idle</span></div>
+    <div><kbd>g</kbd><span>cycle the grouping</span></div>
+    <div><kbd>s</kbd> <kbd>Shift</kbd>+<kbd>s</kbd><span>walk forward / back through your sections</span></div>
+    <div><kbd>Esc</kbd><span>close a menu, then a dialog, then blur the box you are typing in</span></div>
+  </div>
+  <p class="note">
+    Shortcuts stand down while you are typing in a box, so <kbd>e</kbd> in a message is just an
+    <em>e</em>. <kbd>?</kbd> opens this page from anywhere.
+  </p>
+</section>
+
+<section id="phone">
+  <h2>Your phone</h2>
+  <p>
+    <b>start-phone.cmd</b> opens the port to your local network and prints a pairing link with an
+    access code. Open it once on the phone and that device is remembered by cookie for thirty days.
+  </p>
+  <p>
+    The easy way across is <a href="/pair">the pairing page</a> — <b>⋯ → Phone access</b> on the board,
+    or <code>/pair</code> straight in. It draws a QR code for each network address with the access code
+    already in the link, so there is nothing to type on the phone: point the camera at it and tap. If
+    the port is not open, that page says so and says what to run instead.
+  </p>
+  <table class="ht">
+    <tr><th>What is enforced</th><th>How</th></tr>
+    <tr><td>No code, no entry</td><td>An unlock screen for pages, a 401 for API calls. Eight wrong guesses locks that device out for ten minutes.</td></tr>
+    <tr><td>Judged by the socket</td><td>Not by a Host header a client can invent. Requests from this machine never need the code.</td></tr>
+    <tr><td>The no-prompts stance is refused</td><td>A paired phone cannot run tools unasked.</td></tr>
+    <tr><td>Your layer travels</td><td>Sections, theme, collapsed groups, dismissals live in <code>prefs.json</code> on the server, so the phone sees the same dashboard.</td></tr>
+  </table>
+  <p class="warn">
+    Understand what you are opening: this page launches terminals on your PC. Your own Wi-Fi only,
+    never port-forwarded, and not on café networks. It is plain HTTP, so the code crosses the LAN
+    unencrypted.
+  </p>
+</section>
+
+<section id="env">
+  <h2>Settings &amp; environment variables</h2>
+  <table class="ht">
+    <tr><th>Variable</th><th>Default</th><th>Effect</th></tr>
+    <tr><td><code>FLEET_PORT</code></td><td>7457</td><td>Which port to serve on.</td></tr>
+    <tr><td><code>FLEET_LAN</code></td><td>off</td><td><code>1</code> opens the port to your network and turns on the access code.</td></tr>
+    <tr><td><code>FLEET_KEY</code></td><td>random</td><td>A fixed access code, so devices stay paired across restarts.</td></tr>
+    <tr><td><code>FLEET_NO_OPEN</code></td><td>off</td><td><code>1</code> stops it launching a browser.</td></tr>
+    <tr><td><code>FLEET_DRY_RUN</code></td><td>off</td><td><code>1</code> writes the files a launch would need but opens no terminal. What the tests use.</td></tr>
+    <tr><td><code>FLEET_POLL_MS</code></td><td>2000</td><td>How often it re-reads state.</td></tr>
+    <tr><td><code>FLEET_HISTORY</code></td><td>60</td><td>How many ended sessions to keep on the board.</td></tr>
+    <tr><td><code>FLEET_HANDBACK_MS</code></td><td>600000</td><td>How long <em>waiting for you</em> lasts before it decays to <em>done</em>.</td></tr>
+    <tr><td><code>FLEET_LONG_MS</code></td><td>720000</td><td>How long a slow tool runs before <em>still running</em> escalates to <em>needs you</em>.</td></tr>
+    <tr><td><code>FLEET_TRASH_KEEP</code></td><td>200</td><td>How many file versions <code>trash/</code> keeps.</td></tr>
+    <tr><td><code>FLEET_PREFS_FILE</code></td><td><code>prefs.json</code></td><td>Where your settings live. The tests point this at a scratch file.</td></tr>
+    <tr><td><code>CLAUDE_CONFIG_DIR</code></td><td><code>~/.claude</code></td><td>Which Claude directory to watch.</td></tr>
+  </table>
+  <h3>Files it writes</h3>
+  <table class="ht">
+    <tr><th>File</th><th>What is in it</th></tr>
+    <tr><td><code>prefs.json</code></td><td>Your sections, theme, grouping, collapsed groups, dismissals, chat stance.</td></tr>
+    <tr><td><code>chats.json</code></td><td>Chats started from this page, so their cards survive closing the panel.</td></tr>
+    <tr><td><code>idle-marks.json</code></td><td>Sessions you have marked idle.</td></tr>
+    <tr><td><code>trash/</code></td><td>A copy of every file version this app has replaced or deleted.</td></tr>
+  </table>
+</section>
+
+<section id="api">
+  <h2>The API</h2>
+  <p>
+    Loopback JSON, no dependencies. Reads are plain <code>GET</code>s; anything that writes needs the
+    per-run token the page is given, so a random website cannot drive your terminal through this port.
+  </p>
+  <table class="ht">
+    <tr><th>Reads</th><th></th></tr>
+    <tr><td><code>GET /api/state</code></td><td>Every session, its status, chips and queue position.</td></tr>
+    <tr><td><code>GET /api/events</code></td><td>Server-sent stream of the above, pushed when anything changes.</td></tr>
+    <tr><td><code>GET /api/transcript?id=&amp;limit=</code></td><td>A conversation. Limit clamped to 600.</td></tr>
+    <tr><td><code>GET /api/image?id=&amp;uuid=&amp;b=</code></td><td>One image out of a transcript, by row and block.</td></tr>
+    <tr><td><code>GET /api/search?q=</code></td><td>Full-text across every transcript.</td></tr>
+    <tr><td><code>GET /api/export?id=</code></td><td>A conversation as Markdown, as a download.</td></tr>
+    <tr><td><code>GET /api/toolbox</code></td><td>MCP servers, skills, agents, commands, and the rules inventory.</td></tr>
+    <tr><td><code>GET /api/usage</code></td><td>Tokens per day, model, project and session, plus the rate-limit window.</td></tr>
+    <tr><td><code>GET /api/prefs</code> · <code>GET /api/trash</code></td><td>Your settings; the version history.</td></tr>
+    <tr><td><code>GET /api/token</code></td><td>The current write token, so a page open across a restart can recover. A cross-origin page can call it but cannot read the answer, which is what makes the token worth having.</td></tr>
+  </table>
+  <table class="ht">
+    <tr><th>Writes</th><th></th></tr>
+    <tr><td><code>POST /api/chat</code> · <code>/chat/stop</code> · <code>/chat/forget</code></td><td>Start a headless turn, kill one, stop pinning a chat.</td></tr>
+    <tr><td><code>GET /api/chat/events?run=</code></td><td>That run's event stream, replayed from the start for late joiners.</td></tr>
+    <tr><td><code>POST /api/reply</code> · <code>/new-terminal</code></td><td>Open a terminal on an existing or new chat.</td></tr>
+    <tr><td><code>POST /api/file/read</code> · <code>write</code> · <code>create</code> · <code>delete</code></td><td>The editor. Only files the inventory published.</td></tr>
+    <tr><td><code>POST /api/mcp/save</code> · <code>/mcp/delete</code></td><td>Structured MCP edits.</td></tr>
+    <tr><td><code>POST /api/permission</code> · <code>/api/hook</code></td><td>Add or remove a permission rule or a hook.</td></tr>
+    <tr><td><code>POST /api/trash/read</code> · <code>restore</code> · <code>empty</code></td><td>The version history.</td></tr>
+    <tr><td><code>POST /api/prefs</code> · <code>/api/idle</code> · <code>/api/open</code></td><td>Settings, idle marks, open a file or folder locally.</td></tr>
+  </table>
+</section>
+
+<section id="limits">
+  <h2>What it cannot do</h2>
+  <table class="ht">
+    <tr><th>Limit</th><th>Why</th></tr>
+    <tr><td>An in-page chat cannot ask you about a tool call</td><td>Print mode has no permission-prompt hook. Agree a stance up front, or use a terminal.</td></tr>
+    <tr><td>Status is a guess</td><td>Prompts and idle-waiting are never logged. A long build can still look like a stalled prompt, which is why <em>mark idle</em> exists.</td></tr>
+    <tr><td>No cost figures</td><td>Nothing on disk records one on this plan — every request reports zero. The totals are wired up and would work if that changed.</td></tr>
+    <tr><td>Only Claude Code sessions on this machine</td><td>claude.ai chats live server-side and are not in <code>~/.claude</code>.</td></tr>
+    <tr><td>Plan quota is not shown as a bar</td><td>Only the window the API reports, and only after one in-page turn. Run <code>/usage</code> in Claude Code for Anthropic's own breakdown.</td></tr>
+  </table>
+</section>
+
+<section id="tests">
+  <h2>Tests</h2>
+  <pre class="code">node test/run.mjs            # everything
+node test/run.mjs guards     # only suites matching "guards"</pre>
+  <p>
+    It starts its own server on 7999 with <code>FLEET_DRY_RUN=1</code>, so nothing in the suite can
+    open a terminal, and points prefs at a scratch file so a run never rearranges your dashboard.
+    <b>106 checks</b>: the write refusals, the response shapes each panel assumes, and a browser pass
+    over the board, the Enter rule, the counts, card expansion, accessible names, focus trapping and
+    deep search. <code>test/api-guards.mjs</code> is the one to keep green.
+  </p>
+</section>
+
+</main>
+
+<footer class="hfoot">
+  <p>Served from <code>public/help.html</code> by the app you are running. <a href="/">Back to the board</a>.</p>
+</footer>
+
+</body>
+</html>
