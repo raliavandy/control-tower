@@ -1099,6 +1099,31 @@ const hasWt = (() => {
   try { execFileSync('where', ['wt.exe'], { stdio: 'ignore' }); return true; } catch { return false; }
 })();
 
+// The desktop app installs its own claude.exe under a version-numbered folder and never
+// puts it on PATH, so `where claude` finds nothing on machines that only have the desktop
+// app. Fall back to the newest versioned install before giving up.
+const CLAUDE_BIN = (() => {
+  try {
+    const out = execFileSync('where', ['claude'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const first = out.split(/\r?\n/)[0]?.trim();
+    if (first) return first;
+  } catch {}
+  const roots = [
+    path.join(HOME, 'AppData', 'Roaming', 'Claude', 'claude-code'),
+    path.join(HOME, 'AppData', 'Local', 'Claude', 'claude-code'),
+  ];
+  for (const root of roots) {
+    let versions;
+    try { versions = fs.readdirSync(root); } catch { continue; }
+    versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    for (const v of versions) {
+      const exe = path.join(root, v, 'claude.exe');
+      if (fs.existsSync(exe)) return exe;
+    }
+  }
+  return null;
+})();
+
 // Pasted screenshots. There is no CLI flag for attaching an image to a resumed prompt, so
 // they land next to the prompt file on disk and the message points Claude at the paths.
 const IMAGE_EXT = {
@@ -1149,7 +1174,9 @@ function launchTerminal({ id, cwd, message, images, model, effort }) {
     ...(wantModel ? ['--model', psQuote(wantModel)] : []),
     ...(wantEffort ? ['--effort', psQuote(wantEffort)] : []),
   ].join(' ');
-  const invoke = `claude${id ? ' --resume ' + psQuote(id) : ''}${flags ? ' ' + flags : ''}`;
+  // Bare `claude` only resolves if it's on PATH - not guaranteed for a desktop-app install.
+  const claudeCmd = CLAUDE_BIN ? `& ${psQuote(CLAUDE_BIN)}` : 'claude';
+  const invoke = `${claudeCmd}${id ? ' --resume ' + psQuote(id) : ''}${flags ? ' ' + flags : ''}`;
 
   let body = '';
   if (text) {
@@ -1662,10 +1689,12 @@ function startChat({ id, cwd, message, images, model, effort, stance, fromThisPc
   rememberChat(sessionId, cwd);   // so the card survives closing the panel
   sweepRuns();
 
-  // `claude` on Windows is a .ps1/.cmd shim, so it needs a shell to resolve.
-  const child = spawn('cmd.exe', ['/c', 'claude', ...args], {
-    cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // A PATH shim (npm global install) needs cmd.exe to resolve; a resolved exe path doesn't.
+  const child = CLAUDE_BIN && CLAUDE_BIN.toLowerCase().endsWith('.exe')
+    ? spawn(CLAUDE_BIN, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    : spawn('cmd.exe', ['/c', CLAUDE_BIN || 'claude', ...args], {
+        cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      });
   run.child = child;
 
   let buffer = '';

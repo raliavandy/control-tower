@@ -229,7 +229,9 @@ async function sendChat() {
 }
 
 function openNewChat() {
-  if (running()) return toast('Wait for the current answer to finish', '', 'bad');
+  // The chat on screen, if any, keeps running server-side and picks up a pill - same hand-off
+  // openDrawer() already does when you switch to a different existing session mid-answer.
+  chatRun = null;
   drawerId = null;
   drawerConvo = null;
   newChatMode = true;
@@ -239,8 +241,11 @@ function openNewChat() {
   $('#drawer-body').replaceChildren(h('p', 'drawer-hint', 'Nothing here yet. Your question and the answer will appear in this panel.'));
   $('.drawer-tools').hidden = true;
   for (const el of document.querySelectorAll('.newchat-only')) el.hidden = false;
+  $('#drawer-send').disabled = false;
+  $('#drawer-stop').hidden = true;
   folderOptions();
   setRunStatus('');
+  paintRunPill();
   shotTray(composeKey(), $('#drawer-shots'));
   $('#drawer-reply').focus();
 }
