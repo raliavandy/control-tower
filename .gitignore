@@ -3,4 +3,6 @@ trash/
 chats.json
 prefs.json
 idle-marks.json
+provider-keys.json
+openai-chats/
 *.log

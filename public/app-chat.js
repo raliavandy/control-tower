@@ -11,6 +11,7 @@
 const chatRuns = new Map();   // sessionId -> { runId, es, node, text, status, title, sessionId }
 let chatRun = null;           // the run belonging to the panel on screen, if any
 let newChatMode = false;
+let newChatProvider = 'claude';
 // Attachments hang off the session id, or off 'new' before a new chat has one.
 const composeKey = () => drawerId || 'new';
 let chatStance = store.get('stance', 'read');
@@ -20,17 +21,71 @@ let chatEffort = store.get('chateffort', '');
 const running = () => !!chatRun;                 // is the panel's own chat mid-answer?
 const runFor = (id) => chatRuns.get(id) || null;  // is *that* chat mid-answer, panel or not?
 
+// Which provider the open panel is actually about: an existing chat's own provider, or whichever
+// one is picked in the New Chat dropdown.
+const activeProvider = () => (drawerId ? (cur(drawerId).provider || 'claude') : newChatProvider);
+
+async function loadProviders() {
+  try {
+    const res = await fetch('/api/providers');
+    providers = await res.json();
+  } catch (e) {
+    toast('Could not read provider settings', e.message, 'bad');
+  }
+  fillProviderSelect();
+  if (!$('#drawer').hidden) applyProviderChrome();
+}
+
+function fillProviderSelect() {
+  const select = $('#new-provider');
+  const chosen = select.value || newChatProvider;
+  select.replaceChildren();
+  for (const [id, p] of Object.entries(providers)) {
+    const needsKey = p.kind === 'api-key' && !p.configured;
+    const o = h('option', '', p.label + (needsKey ? ' — needs an API key' : ''));
+    o.value = id;
+    select.append(o);
+  }
+  select.value = providers[chosen] ? chosen : 'claude';
+  newChatProvider = select.value;
+}
+
+$('#new-provider').addEventListener('change', (e) => {
+  newChatProvider = e.target.value;
+  const p = providers[newChatProvider];
+  if (p?.kind === 'api-key' && !p.configured) {
+    toast(`No ${p.label} key saved yet`, 'Add one from the ⋯ menu, then come back here.', 'bad');
+  }
+  applyProviderChrome();
+});
+
+// Everything about the panel's chrome that depends on what the current provider can actually
+// do: a folder only means something to a local CLI, "can" (permission stance) only applies where
+// print mode can't ask about a tool call, and "open in terminal" needs a terminal to open.
+function applyProviderChrome() {
+  const caps = providerOf({ provider: activeProvider() });
+  $('#new-folder-field').hidden = !newChatMode || !caps.hasFolder;
+  $('#chat-stance-field').hidden = !caps.hasStance;
+  $('#chat-effort-field').hidden = !(caps.efforts === null || caps.efforts.length);
+  $('#drawer-terminal').hidden = !caps.canResumeInTerminal;
+  fillChatSelects();
+}
+
 function fillChatSelects() {
+  const caps = providerOf({ provider: activeProvider() });
+  const modelList = caps.models || MODELS;
+  const effortList = caps.efforts === null ? EFFORTS : caps.efforts;
+
   const model = $('#chat-model');
   model.replaceChildren(h('option', '', 'session default'));
   model.firstChild.value = '';
-  for (const m of MODELS) { const o = h('option', '', m); o.value = m; model.append(o); }
+  for (const m of modelList) { const o = h('option', '', m); o.value = m; model.append(o); }
   model.value = chatModel;
 
   const effort = $('#chat-effort');
   effort.replaceChildren(h('option', '', 'session default'));
   effort.firstChild.value = '';
-  for (const e of EFFORTS) { const o = h('option', '', e); o.value = e; effort.append(o); }
+  for (const e of effortList) { const o = h('option', '', e); o.value = e; effort.append(o); }
   effort.value = chatEffort;
 
   $('#chat-stance').value = chatStance;
@@ -61,7 +116,7 @@ function setRunStatus(text, kind) {
 // One live turn, rendered as it arrives, then replaced by the canonical transcript at the end.
 function liveTurn() {
   const el = h('div', 'msg assistant live');
-  el.append(h('div', 'msg-head', 'claude · now'));
+  el.append(h('div', 'msg-head', assistantLabel(activeProvider()) + ' · now'));
   const text = h('p', 'msg-text');
   const tools = h('div', 'msg-tools');
   el.append(text, tools);
@@ -186,8 +241,10 @@ async function sendChat() {
   const images = shotsOf(key);
   if (!message && !images.length) { ta.focus(); return; }
 
+  const provider = activeProvider();
+  const caps = providerOf({ provider });
   const cwd = drawerId ? (cur(drawerId).cwd || $('#new-folder').value) : $('#new-folder').value;
-  if (!cwd) { toast('Pick a folder for the chat', '', 'bad'); return; }
+  if (caps.hasFolder && !cwd) { toast('Pick a folder for the chat', '', 'bad'); return; }
 
   // Show your own message straight away rather than waiting for the transcript to catch up.
   const mine = h('div', 'msg user');
@@ -201,6 +258,7 @@ async function sendChat() {
     const r = await post('/api/chat', {
       id: drawerId || null, cwd, message, images,
       model: chatModel || undefined, effort: chatEffort || undefined, stance: chatStance,
+      provider: drawerId ? undefined : provider,
     });
     ta.value = ''; ta.style.height = 'auto';
     shots.delete(key); shotTray(composeKey(), $('#drawer-shots')); paintShots(key);
@@ -243,6 +301,8 @@ function openNewChat() {
   for (const el of document.querySelectorAll('.newchat-only')) el.hidden = false;
   $('#drawer-send').disabled = false;
   $('#drawer-stop').hidden = true;
+  fillProviderSelect();
+  applyProviderChrome();
   folderOptions();
   setRunStatus('');
   paintRunPill();
@@ -265,3 +325,75 @@ async function sendFromCard(id, ta) {
   paintShots(id);
   await sendChat();
 }
+
+/* -------------------------------------------------- provider API keys
+
+   A small modal of its own rather than folding into the file editor: an API key isn't a file
+   on disk to browse or diff against a backup, just one value to set, test and clear. */
+
+let keyModalProvider = null;
+
+function openKeyModal(providerId) {
+  keyModalProvider = providerId;
+  const p = providers[providerId];
+  $('#key-title').textContent = `${p?.label || providerId} API key`;
+  $('#key-input').value = '';
+  $('#key-input').placeholder = p?.configured ? 'already set — paste a new one to replace it' : 'sk-…';
+  $('#key-status').textContent = '';
+  $('#key-status').className = 'ed-note';
+  $('#key-delete').hidden = !p?.configured;
+  $('#key-modal').hidden = false;
+  $('#key-scrim').hidden = false;
+  $('#key-input').focus();
+}
+
+function closeKeyModal() {
+  $('#key-modal').hidden = true;
+  $('#key-scrim').hidden = true;
+  keyModalProvider = null;
+}
+
+function keyStatus(text, kind) {
+  const el = $('#key-status');
+  el.textContent = text;
+  el.className = 'ed-note' + (kind ? ' ' + kind : '');
+}
+
+$('#key-close').addEventListener('click', closeKeyModal);
+$('#key-scrim').addEventListener('click', closeKeyModal);
+
+$('#key-test').addEventListener('click', async () => {
+  const key = $('#key-input').value.trim();
+  keyStatus('testing…');
+  try {
+    const r = await post('/api/provider-keys/test', { provider: keyModalProvider, key: key || undefined });
+    keyStatus(r.ok ? 'works' : (r.error || 'that did not work'), r.ok ? 'good' : 'bad');
+  } catch (e) {
+    keyStatus(e.message, 'bad');
+  }
+});
+
+$('#key-save').addEventListener('click', async () => {
+  const key = $('#key-input').value.trim();
+  if (!key) { keyStatus('paste a key first', 'bad'); return; }
+  try {
+    await post('/api/provider-keys', { provider: keyModalProvider, key });
+    toast('Saved', providers[keyModalProvider]?.label || keyModalProvider, 'good');
+    closeKeyModal();
+    loadProviders();
+  } catch (e) {
+    keyStatus(e.message, 'bad');
+  }
+});
+
+$('#key-delete').addEventListener('click', async () => {
+  if (!confirm('Remove this key? Chats with this provider will stop working until you add one back.')) return;
+  try {
+    await post('/api/provider-keys/delete', { provider: keyModalProvider });
+    toast('Removed', '', 'good');
+    closeKeyModal();
+    loadProviders();
+  } catch (e) {
+    keyStatus(e.message, 'bad');
+  }
+});

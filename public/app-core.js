@@ -49,6 +49,10 @@ const store = {
 };
 
 let sessions = [];
+// { claude: {label, kind, configured, canResumeInTerminal, hasFolder, hasStance, models, efforts}, ... }
+let providers = { claude: { label: 'Claude Code', kind: 'cli', configured: true, canResumeInTerminal: true, hasFolder: true, hasStance: true, models: null, efforts: null } };
+const providerOf = (s) => providers[s.provider] || providers.claude;
+const assistantLabel = (providerId) => (providerId === 'openai' ? 'chatgpt' : 'claude');
 let filter = store.get('filter', 'live');
 let groupBy = store.get('groupby', 'none');
 let view = store.get('view', 'sessions');
@@ -76,7 +80,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 function trapFocus(e) {
   if (e.key !== 'Tab') return;
-  const dialog = [$('#editor'), $('#drawer')].find((d) => d && !d.hidden);
+  const dialog = [$('#editor'), $('#key-modal'), $('#drawer')].find((d) => d && !d.hidden);
   if (!dialog || !dialog.contains(document.activeElement)) return;
   const stops = [...dialog.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
   if (!stops.length) return;

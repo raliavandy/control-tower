@@ -209,15 +209,20 @@ function paintUsage() {
   const today = all.find((d) => d.date === usageData.today) || blankDay(usageData.today);
 
   // Only ever shown if a cost actually exists. On a subscription plan nothing on disk carries
-  // one, and a row of $0.00 would be worse than saying so plainly.
+  // one for Claude, and a row of $0.00 would be worse than saying so plainly. OpenAI is metered,
+  // so once you've used it there is a real (if estimated) figure to add in.
   const spend = usageData.totals.cost || 0;
+  const usedOpenai = usageData.projects.some((p) => p.project === 'ChatGPT');
   const costLine = spend > 0
-    ? `<b>$${spend.toFixed(2)}</b> recorded all-time.`
+    ? `<b>$${spend.toFixed(2)}</b> recorded all-time` +
+      (usedOpenai ? ' — exact where Claude Code records it (usually nothing, on a subscription), estimated from published list pricing for ChatGPT.' : '.')
+    : usedOpenai ? 'Nothing recorded yet.'
     : 'No cost is recorded on this plan — Claude Code writes zero for every request, so there is nothing to total.';
 
   $('#usage-note').innerHTML =
-    `Counted from every transcript under <b>~/.claude/projects</b> — <b>${usageData.totals.requests.toLocaleString()}</b> requests ` +
-    `across <b>${all.length}</b> active days. Output tokens are the headline; cache reads dwarf everything else and are shown separately. ` +
+    `Counted from every transcript under <b>~/.claude/projects</b>, plus every ChatGPT chat this app has run — ` +
+    `<b>${usageData.totals.requests.toLocaleString()}</b> requests across <b>${all.length}</b> active days. ` +
+    `Output tokens are the headline; cache reads dwarf everything else and are shown separately. ` +
     costLine;
 
   $('#usage-tiles').replaceChildren(
@@ -262,5 +267,7 @@ function paintUsage() {
     (stale ? `(yours last did on <b>${stale}</b>), ` : '') +
     `so these figures come from the transcripts instead. ` +
     `Messages replayed into forked or resumed sessions are counted once — that skipped ` +
-    `<b>${usageData.duplicatesSkipped.toLocaleString()}</b> of them here.`;
+    `<b>${usageData.duplicatesSkipped.toLocaleString()}</b> of them here.` +
+    (usedOpenai ? ` ChatGPT's cost is computed from real token counts against a published price list kept ` +
+      `in this app — accurate as of when that list was last updated, not a live lookup.` : '');
 }

@@ -98,6 +98,30 @@ await describe('round trip — an MCP server survives being saved unchanged', as
   eq(after.oauthAccount, before.oauthAccount, 'the account block is intact');
 });
 
+await describe('write guards — provider keys are never echoed back', async () => {
+  const noToken = await post('/api/provider-keys', { provider: 'openai', key: 'sk-test-guard-key' }, { withToken: false });
+  ok(noToken.status === 403, 'a POST without the run token is rejected', `got ${noToken.status}`);
+
+  // GET never returns the raw key (by design), so this suite has no way to restore a real one
+  // it might overwrite - skip the write/overwrite check rather than risk clobbering it.
+  const before = await getJson('/api/provider-keys');
+  if (before.openai?.set) {
+    ok(true, 'a real key is already saved here — skipped the write check to avoid clobbering it');
+    return;
+  }
+
+  const saved = await post('/api/provider-keys', { provider: 'openai', key: 'sk-test-guard-key-zzzz' });
+  ok(saved.status === 200, 'saving a key succeeds');
+
+  const after = await getJson('/api/provider-keys');
+  ok(after.openai?.set === true, 'it reports the key as set');
+  eq(after.openai.last4, 'zzzz', 'only the last 4 characters are ever exposed');
+  ok(!JSON.stringify(after).includes('sk-test-guard-key-zzzz'), 'the raw key never appears in the response');
+
+  const removed = await post('/api/provider-keys/delete', { provider: 'openai' });
+  ok(removed.status === 200, 'and it cleans up after itself');
+});
+
 await describe('round trip — an argument containing a space survives', async () => {
   const name = 'test-spaced-args';
   const args = ['/c', 'echo', 'hello world', '--flag=a b'];

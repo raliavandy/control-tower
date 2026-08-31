@@ -226,6 +226,10 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
   </header>
   <div class="drawer-body" id="drawer-body"></div>
   <footer class="drawer-foot">
+    <label class="field newchat-only" id="new-provider-field" hidden>
+      <span>Assistant</span>
+      <select id="new-provider"></select>
+    </label>
     <label class="field newchat-only" id="new-folder-field" hidden>
       <span>Folder for the new chat</span>
       <select id="new-folder"></select>
@@ -238,7 +242,7 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
       <button class="btn stop" id="drawer-stop" hidden>Stop</button>
     </div>
     <div class="compose-controls">
-      <label class="mini-field">
+      <label class="mini-field" id="chat-stance-field">
         <span>can</span>
         <select id="chat-stance" title="Print mode cannot ask you about a tool call, so this is agreed up front">
           <option value="read">read only</option>
@@ -247,7 +251,7 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
         </select>
       </label>
       <label class="mini-field"><span>model</span><select id="chat-model"></select></label>
-      <label class="mini-field"><span>effort</span><select id="chat-effort"></select></label>
+      <label class="mini-field" id="chat-effort-field"><span>effort</span><select id="chat-effort"></select></label>
       <span class="spacer"></span>
       <button class="link" id="drawer-terminal" title="Open the real interactive TUI in a terminal instead">open in terminal</button>
     </div>
@@ -315,6 +319,33 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
   </footer>
 </section>
 
+<!-- Setting up a provider's API key. -->
+<div class="modal-scrim" id="key-scrim" hidden></div>
+<section class="modal" id="key-modal" hidden role="dialog" aria-label="API key">
+  <header>
+    <div class="ed-head">
+      <h2 id="key-title">OpenAI API key</h2>
+      <p class="drawer-sub">Stored in plaintext next to the server — same as an MCP server's own env values. Never leaves this machine except in requests you send.</p>
+    </div>
+    <button class="icon-btn" id="key-close" title="Close (Esc)" aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="ed-body">
+    <div class="ed-form">
+      <label class="field"><span>API key</span><input id="key-input" type="password" spellcheck="false" placeholder="sk-…" autocomplete="off"></label>
+      <p class="ed-note" id="key-status"></p>
+    </div>
+  </div>
+  <footer>
+    <span class="ed-note" id="key-note">Get one at platform.openai.com/api-keys — billed separately from any ChatGPT subscription.</span>
+    <span class="spacer"></span>
+    <button class="btn danger" id="key-delete" hidden>Remove</button>
+    <button class="btn" id="key-test">Test</button>
+    <button class="btn primary" id="key-save">Save</button>
+  </footer>
+</section>
+
 <!-- One pill per conversation that is still answering off-screen. -->
 <div class="runtray" id="runtray" hidden aria-live="polite" aria-label="Chats still answering"></div>
 
@@ -355,6 +386,7 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
         <button class="link act-folder" title="Open this folder in Explorer">folder</button>
         <span class="spacer"></span>
         <button class="link act-forget" hidden title="Stop pinning this in-page chat to the board">forget</button>
+        <button class="link danger act-delete" hidden title="Delete this chat for good — this app is the only copy">delete</button>
         <button class="link act-idle">mark idle</button>
       </div>
     </div>

@@ -7,7 +7,9 @@ which ones are stuck waiting on you, and a reply box for each.
 name — renaming those would break saved settings for no gain.)
 
 Double-click **start.cmd**. It serves <http://localhost:7457/> and opens your browser.
-No dependencies, no install, nothing leaves the machine (the server binds to 127.0.0.1 only).
+No dependencies, no install, and the server binds to 127.0.0.1 only — nothing leaves the machine,
+with one opt-in exception: if you set up the OpenAI provider, your own key talks to OpenAI's API
+when you start a ChatGPT chat. See [Providers](#providers).
 
 The server window opens **minimised** so it never sits on top of the dashboard — it stays in the
 taskbar as *Rals Cockpit*, and closing that window stops the server. Run `start.cmd` again while
@@ -243,11 +245,13 @@ Every block here minimises to its title row: click the title, or **minimise all*
 The state is remembered, so a block you shut stays shut next time (all five collapsed takes the
 page from ~910px to ~306px).
 
-**Where the numbers come from.** `~/.claude/stats-cache.json` exists but only recomputes when the
-CLI feels like it (on this machine it was months stale), so the figures are counted from the
-transcripts instead: every assistant row carries a `usage` block. A full pass over ~100 MB takes
-about half a second, and each file's entries are cached on (mtime, size), so only a live session
-gets re-read.
+**Where the numbers come from.** For Claude: `~/.claude/stats-cache.json` exists but only recomputes
+when the CLI feels like it (on this machine it was months stale), so the figures are counted from
+the transcripts instead — every assistant row carries a `usage` block. A full pass over ~100 MB
+takes about half a second, and each file's entries are cached on (mtime, size), so only a live
+session gets re-read. For OpenAI: every chat's own file already carries the real token counts the
+API reported for each turn (see [Providers](#providers)). Both feed the *same* day/model/project
+totals — the charts and rankings don't care which provider a given bar came from.
 
 Two things that would otherwise make the totals wrong:
 
@@ -256,10 +260,13 @@ Two things that would otherwise make the totals wrong:
 - "Last 30 days" means 30 **calendar** days, with quiet days filled as zero, not the last 30 days
   that happen to have data.
 
-**Cost is not shown, on purpose.** Nothing on disk records one on this plan — 2,784 assistant rows
-scanned, no cost field anywhere, and `stats-cache.json` reports `costUSD: 0` for every model. The
-aggregation is wired up and would total real figures if they ever appeared; until then the view says
-so rather than printing a row of `$0.00`.
+**Cost** is exact where it's on disk and zero otherwise — on a Claude subscription that's every
+request (2,784 assistant rows scanned, no cost field anywhere, `stats-cache.json` reports
+`costUSD: 0` for every model), so nothing prints until there's a real figure to show, rather than a
+row of `$0.00`. OpenAI is different: it's genuinely metered, so once you've used it the view shows a
+**real, if estimated**, dollar figure — computed from the actual token counts against a published
+per-model price list kept in `server/providers/openai.mjs`, not a live lookup, so it can drift from
+OpenAI's current pricing page.
 
 **Your rate-limit window** shows at the top of the view — window type, whether you are still
 allowed, when it resets, and whether extra usage is available. It is not on disk anywhere: the API
@@ -365,6 +372,44 @@ on the same history.
 
 `copy resume cmd` puts `claude --resume <id>` on your clipboard if you'd rather drive it yourself.
 
+## Providers
+
+Claude Code isn't hardcoded any more — it's the first entry in a small registry (`GET
+/api/providers`), and OpenAI is the second. The two work very differently, and the board is honest
+about that rather than pretending they're the same thing:
+
+| | Claude Code | OpenAI (ChatGPT) |
+|---|---|---|
+| what it is | a local CLI with its own on-disk transcripts | an API key you provide |
+| a session exists because | you (or this app) started `claude` | this app called the API and kept the reply |
+| resume in a terminal | yes | no such thing — there's no terminal to reattach to |
+| folder / permission stance | yes | no — nothing runs locally, so neither applies |
+| watches sessions started elsewhere | yes (any `claude` process, any terminal) | no — this app is the only place an OpenAI chat can exist |
+
+**Setting it up**: `⋯` menu → *OpenAI API key — set it up*. Get one at
+platform.openai.com/api-keys — it's billed separately from any ChatGPT subscription, even on the
+same account. The key is stored in plaintext in `provider-keys.json` next to the server — the same
+trust model this app already uses for an MCP server's own `env` values (filesystem permissions and
+the app's own token, not a vault), and it's `.gitignore`d. `GET /api/provider-keys` only ever
+returns whether a key is set and its last 4 characters — never the key itself.
+
+Pick **ChatGPT** from the assistant dropdown in **+ New chat** to start one. It streams into the
+page exactly like a headless Claude turn, using Node's built-in `fetch` to call
+`api.openai.com/v1/chat/completions` with `stream: true` — the one outbound network call this app
+makes, and only when you've configured a key and started a chat. Each conversation is its own file
+under `openai-chats/` (also `.gitignore`d), since Chat Completions has no memory of its own — the
+full history is resent every turn.
+
+**Forget** vs **Delete** matter more here than for Claude: Claude's transcript lives on its own
+regardless of what this app does, so *forget* just unpins the card. An OpenAI chat's file *is* the
+only copy, so *forget* only unpins it (it sinks into history, same as a Claude session that isn't
+running), while **Delete** removes it for good.
+
+**Local-CLI agents** (a hypothetical Codex CLI, Gemini CLI, ...) could get the same full parity
+Claude has — live status, resume in a terminal — because they'd follow the same on-disk pattern.
+None of that is built yet: nothing like that was installed on this machine to build and test
+against. `server/providers/claude.mjs` is the template such a provider would copy.
+
 ## Where the data comes from
 
 Read-only, from your local Claude Code state:
@@ -400,11 +445,14 @@ desktop app live server-side and aren't in `~/.claude`.
 | | |
 |---|---|
 | `server.mjs` | scanner, inventory, JSON API, SSE, the headless chat runner, all the write paths |
+| `server/providers/openai.mjs` | the OpenAI provider: its own session store, read side, and chat streaming |
 | `public/index.html` | markup + card and group templates |
 | `public/app-*.js` | the front end, in load order — core, shots, cards, board, menus, inventory, usage, search, chat, drawer, chrome |
 | `public/pixel.js` | the mascots: 12×12 string art → `<rect>`s, two-frame flipbooks, tab icon |
 | `public/styles.css` | dark/light theming |
 | `public/help.html` · `help.css` | the manual, served at `/help.html` |
+| `provider-keys.json` | your OpenAI key, if you've set one up — plaintext, `.gitignore`d |
+| `openai-chats/` | one file per OpenAI conversation — `.gitignore`d |
 | `test/` | `node test/run.mjs` — see below |
 
 The `app-*.js` files are plain classic scripts loaded in order, so they share one top-level scope

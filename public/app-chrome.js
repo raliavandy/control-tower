@@ -72,6 +72,18 @@ function phoneRow() {
   };
 }
 
+// One row per api-key provider in the registry - today that's just OpenAI, but nothing here
+// assumes there's only ever one.
+function providerKeyRows() {
+  return Object.entries(providers)
+    .filter(([, p]) => p.kind === 'api-key')
+    .map(([id, p]) => ({
+      label: p.configured ? `${p.label} API key — change it` : `${p.label} API key — set it up`,
+      tick: p.configured,
+      pick: () => { closePopover(); openKeyModal(id); },
+    }));
+}
+
 $('#btn-more').addEventListener('click', (e) => {
   e.stopPropagation();
   if (popover) { closePopover(); return; }
@@ -82,6 +94,7 @@ $('#btn-more').addEventListener('click', (e) => {
       { label: 'Desktop alerts', tick: notify, pick: () => { closePopover(); toggleAlerts(); } },
       { label: dark ? 'Switch to light' : 'Switch to dark', pick: () => { closePopover(); setTheme(dark ? 'light' : 'dark'); } },
       phoneRow(),
+      ...providerKeyRows(),
     ],
     // No how-to entry here: it already has its own labelled button in the top bar.
     note: window.FLEET_PHONE?.urls?.length
@@ -225,6 +238,7 @@ setView(view);
 connect();
 loadToolbox();
 loadUsage();
+loadProviders();
 setInterval(() => {
   for (const [id, el] of cards) el.querySelector('.ago').textContent = ago(cur(id).lastActivity);
 }, 1000);
