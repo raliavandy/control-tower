@@ -31,6 +31,7 @@
   <a href="#status">What each status means</a>
   <a href="#origin">Where a chat came from</a>
   <a href="#chat">Chatting in the page</a>
+  <a href="#providers">Providers</a>
   <a href="#edit">Editing rules &amp; servers</a>
   <a href="#keys">Every shortcut</a>
   <a href="#phone">Your phone</a>
@@ -184,6 +185,36 @@
   </p>
 </section>
 
+<section id="providers">
+  <h2>Providers</h2>
+  <p>
+    Claude Code is the first entry in a small registry (<code>GET /api/providers</code>), and
+    <b>OpenAI</b> is the second. They work differently and the board says so rather than pretending
+    otherwise: OpenAI has no local process to watch and no terminal to resume in — every chat with it
+    exists only because this app called the API and kept the reply.
+  </p>
+  <table class="ht">
+    <tr><th>Set it up</th><td><code>⋯</code> menu → <em>OpenAI API key — set it up</em>. Get one at
+      <code>platform.openai.com/api-keys</code> — billed separately from any ChatGPT subscription.</td></tr>
+    <tr><td colspan="2"></td></tr>
+    <tr><th>Where the key lives</th><td><code>provider-keys.json</code> next to the server, plaintext —
+      same trust model as an MCP server's own <code>env</code> values. <code>GET /api/provider-keys</code>
+      only ever reports whether one is set and its last 4 characters, never the key itself.</td></tr>
+    <tr><td colspan="2"></td></tr>
+    <tr><th>Starting a chat</th><td>Pick <b>ChatGPT</b> from the assistant dropdown in <b>+ New chat</b>.
+      No folder, no permission stance — neither means anything without something running locally.</td></tr>
+    <tr><td colspan="2"></td></tr>
+    <tr><th>Forget vs. Delete</th><td>A Claude transcript lives on its own regardless of this app, so
+      <em>forget</em> just unpins the card. An OpenAI chat's file <b>is</b> the only copy — <em>forget</em>
+      only unpins it too (it sinks into history), <b>Delete</b> removes it for good.</td></tr>
+  </table>
+  <p class="note">
+    A local-CLI agent with its own on-disk transcripts (a hypothetical Codex CLI, Gemini CLI, …) could
+    get the same full parity Claude has. Nothing like that is wired up — none was installed on this
+    machine to build and test against.
+  </p>
+</section>
+
 <section id="edit">
   <h2>Editing rules, skills and MCP servers</h2>
   <p>
@@ -267,6 +298,7 @@
     <tr><td><code>FLEET_LONG_MS</code></td><td>720000</td><td>How long a slow tool runs before <em>still running</em> escalates to <em>needs you</em>.</td></tr>
     <tr><td><code>FLEET_TRASH_KEEP</code></td><td>200</td><td>How many file versions <code>trash/</code> keeps.</td></tr>
     <tr><td><code>FLEET_PREFS_FILE</code></td><td><code>prefs.json</code></td><td>Where your settings live. The tests point this at a scratch file.</td></tr>
+    <tr><td><code>FLEET_PROVIDER_KEYS_FILE</code></td><td><code>provider-keys.json</code></td><td>Where provider API keys live. The tests point this at a scratch file too.</td></tr>
     <tr><td><code>CLAUDE_CONFIG_DIR</code></td><td><code>~/.claude</code></td><td>Which Claude directory to watch.</td></tr>
   </table>
   <h3>Files it writes</h3>
@@ -275,6 +307,8 @@
     <tr><td><code>prefs.json</code></td><td>Your sections, theme, grouping, collapsed groups, dismissals, chat stance.</td></tr>
     <tr><td><code>chats.json</code></td><td>Chats started from this page, so their cards survive closing the panel.</td></tr>
     <tr><td><code>idle-marks.json</code></td><td>Sessions you have marked idle.</td></tr>
+    <tr><td><code>provider-keys.json</code></td><td>Your OpenAI key, if you've set one up. Plaintext, <code>.gitignore</code>d.</td></tr>
+    <tr><td><code>openai-chats/</code></td><td>One file per OpenAI conversation. Also <code>.gitignore</code>d.</td></tr>
     <tr><td><code>trash/</code></td><td>A copy of every file version this app has replaced or deleted.</td></tr>
   </table>
 </section>
@@ -297,12 +331,15 @@
     <tr><td><code>GET /api/usage</code></td><td>Tokens per day, model, project and session, plus the rate-limit window.</td></tr>
     <tr><td><code>GET /api/prefs</code> · <code>GET /api/trash</code></td><td>Your settings; the version history.</td></tr>
     <tr><td><code>GET /api/token</code></td><td>The current write token, so a page open across a restart can recover. A cross-origin page can call it but cannot read the answer, which is what makes the token worth having.</td></tr>
+    <tr><td><code>GET /api/providers</code></td><td>The provider registry — what each one can do, and whether it's configured.</td></tr>
+    <tr><td><code>GET /api/provider-keys</code></td><td>Whether a key is set per provider, and its last 4 characters. Never the key itself.</td></tr>
   </table>
   <table class="ht">
     <tr><th>Writes</th><th></th></tr>
-    <tr><td><code>POST /api/chat</code> · <code>/chat/stop</code> · <code>/chat/forget</code></td><td>Start a headless turn, kill one, stop pinning a chat.</td></tr>
+    <tr><td><code>POST /api/chat</code> · <code>/chat/stop</code> · <code>/chat/forget</code> · <code>/chat/delete</code></td><td>Start a turn (any provider), kill one, stop pinning a chat, delete an OpenAI chat's file for good.</td></tr>
     <tr><td><code>GET /api/chat/events?run=</code></td><td>That run's event stream, replayed from the start for late joiners.</td></tr>
-    <tr><td><code>POST /api/reply</code> · <code>/new-terminal</code></td><td>Open a terminal on an existing or new chat.</td></tr>
+    <tr><td><code>POST /api/reply</code> · <code>/new-terminal</code></td><td>Open a terminal on an existing or new Claude chat.</td></tr>
+    <tr><td><code>POST /api/provider-keys</code> · <code>/delete</code> · <code>/test</code></td><td>Save, remove or test a provider's API key.</td></tr>
     <tr><td><code>POST /api/file/read</code> · <code>write</code> · <code>create</code> · <code>delete</code></td><td>The editor. Only files the inventory published.</td></tr>
     <tr><td><code>POST /api/mcp/save</code> · <code>/mcp/delete</code></td><td>Structured MCP edits.</td></tr>
     <tr><td><code>POST /api/permission</code> · <code>/api/hook</code></td><td>Add or remove a permission rule or a hook.</td></tr>
@@ -318,7 +355,7 @@
     <tr><td>An in-page chat cannot ask you about a tool call</td><td>Print mode has no permission-prompt hook. Agree a stance up front, or use a terminal.</td></tr>
     <tr><td>Status is a guess</td><td>Prompts and idle-waiting are never logged. A long build can still look like a stalled prompt, which is why <em>mark idle</em> exists.</td></tr>
     <tr><td>No cost figures</td><td>Nothing on disk records one on this plan — every request reports zero. The totals are wired up and would work if that changed.</td></tr>
-    <tr><td>Only Claude Code sessions on this machine</td><td>claude.ai chats live server-side and are not in <code>~/.claude</code>.</td></tr>
+    <tr><td>Only Claude Code sessions on this machine, plus OpenAI chats this app itself started</td><td>claude.ai's own web chats live server-side and are not in <code>~/.claude</code>; nothing watches ChatGPT the way it watches Claude Code, because there's nothing local to watch.</td></tr>
     <tr><td>Plan quota is not shown as a bar</td><td>Only the window the API reports, and only after one in-page turn. Run <code>/usage</code> in Claude Code for Anthropic's own breakdown.</td></tr>
   </table>
 </section>

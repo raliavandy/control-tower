@@ -33,6 +33,8 @@ async function startServer() {
       FLEET_DRY_RUN: '1',
       // A scratch prefs file, so a test run never rearranges your real dashboard.
       FLEET_PREFS_FILE: path.join(os.tmpdir(), `cockpit-test-prefs-${process.pid}.json`),
+      // Same idea for provider keys - a test run must never read or overwrite a real saved key.
+      FLEET_PROVIDER_KEYS_FILE: path.join(os.tmpdir(), `cockpit-test-provider-keys-${process.pid}.json`),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

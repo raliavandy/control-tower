@@ -10,6 +10,10 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  configureOpenAI, openaiHas, openaiSessions, openaiReadConversation, openaiDelete, openaiUnpin,
+  runOpenAIChat, testOpenAIKey, OPENAI_MODELS, openaiUsageEntries,
+} from './server/providers/openai.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -17,6 +21,7 @@ const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude');
 const SESSIONS_DIR = path.join(CLAUDE_DIR, 'sessions');
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
 const PUBLIC_DIR = path.join(HERE, 'public');
+configureOpenAI(HERE);
 
 const PORT = Number(process.env.FLEET_PORT || 7457);
 const TOKEN = crypto.randomBytes(16).toString('hex');
@@ -378,8 +383,10 @@ function idleMarked(id, lastActivity) {
   return true;
 }
 
-function buildState() {
-  const now = Date.now();
+// Claude Code's own session discovery: live PID files plus on-disk transcripts. This is the
+// first entry in the PROVIDERS registry (below) - a second provider just needs its own
+// `<name>Sessions(now)` returning the same session shape, tagged with its own `provider` value.
+function claudeSessions(now) {
   const index = transcriptIndex();
   const live = liveProcesses();
   const seen = new Set();
@@ -403,6 +410,7 @@ function buildState() {
       : statusOf(d || {}, alive, lastActivity, now);
     sessions.push({
       id,
+      provider: 'claude',
       alive,
       pid: proc?.pid || null,
       procName: proc?.name || null,
@@ -457,16 +465,34 @@ function buildState() {
     .slice(0, HISTORY_LIMIT);
   for (const [id, entry] of history) push(id, null, entry);
 
+  return sessions;
+}
+
+function buildState() {
+  const now = Date.now();
+  const sessions = [...claudeSessions(now), ...openaiSessions(now)];
+
+  // Claude's own collector already resolves idle-marking itself (idleMarked() is called once
+  // inline per session, since a chat's own lastActivity clears its own mark). Other providers
+  // don't touch that shared map, so it's applied uniformly here instead of duplicating the
+  // marking logic per provider.
+  for (const s of sessions) {
+    if (s.provider === 'claude') continue;
+    if (idleMarked(s.id, s.lastActivity)) { s.status = 'idle'; s.idleMarked = true; s.needsYou = false; }
+  }
+
   // Who to attend to first: a stalled tool call (someone is staring at a prompt) outranks a
   // finished turn, and within each band the one that has been waiting longest wins.
   const liveOnes = sessions.filter((s) => s.alive);
 
-  // A mark says "done with this one for now"; once the session ends there is nothing left to
-  // quieten, so the mark goes with it instead of sitting in the file for ever.
+  // A mark says "done with this one for now"; once a session is actually gone there is nothing
+  // left to quieten, so the mark goes with it. "Gone" means ended for Claude (its process died
+  // and it isn't held open in this page) - an OpenAI chat is never "alive" between turns the way
+  // a Claude terminal is, so gating this on `alive` would drop its mark after every single turn.
   if (idleMarks.size) {
-    const liveIds = new Set(liveOnes.map((s) => s.id));
+    const keepIds = new Set(sessions.filter((s) => s.status !== 'ended').map((s) => s.id));
     let dropped = false;
-    for (const id of [...idleMarks.keys()]) if (!liveIds.has(id)) { idleMarks.delete(id); dropped = true; }
+    for (const id of [...idleMarks.keys()]) if (!keepIds.has(id)) { idleMarks.delete(id); dropped = true; }
     if (dropped) saveIdleMarks();
   }
 
@@ -524,7 +550,14 @@ function findRow(file, size, uuid) {
   return scan(BIG_TAIL_BYTES) || (size <= 96 * 1024 * 1024 ? scan(size) : null);
 }
 
+// Dispatches by provider before doing any real work: an OpenAI id never appears in Claude's own
+// transcript index, so this only needs to ask "do we have an OpenAI chat by this id" first.
 function readConversation(id, limit = 60) {
+  if (openaiHas(id)) return openaiReadConversation(id, limit);
+  return claudeReadConversation(id, limit);
+}
+
+function claudeReadConversation(id, limit = 60) {
   const entry = transcriptIndex().get(id);
   if (!entry) return null;
   const rows = parseJsonLines(readTailLines(entry.file, entry.stat.size, BIG_TAIL_BYTES));
@@ -678,9 +711,27 @@ function buildUsage() {
         totals.output += e.output;
         totals.cacheRead += e.cacheRead;
         totals.cacheCreate += e.cacheCreate;
+        totals.cost += e.cost || 0;
         if (e.sidechain) subagentRequests++;
       }
     }
+  }
+
+  // OpenAI has no on-disk cache-hit concept and no forked-transcript replay to dedupe, so its
+  // entries fold straight into the same day/model/project buckets Claude's own entries use -
+  // the whole point of a shared entry shape is that the view above doesn't need to know or care
+  // which provider a given bar or ranking came from.
+  for (const e of openaiUsageEntries()) {
+    bump(days, e.day, e);
+    bump(models, e.model, e);
+    bump(projects, e.project, e);
+    bump(sessions, e.sessionId, e);
+    totals.requests++;
+    totals.input += e.input;
+    totals.output += e.output;
+    totals.cacheRead += e.cacheRead;
+    totals.cacheCreate += e.cacheCreate;
+    totals.cost += e.cost || 0;
   }
 
   const rows = (map, key) => [...map].map(([k, v]) => ({ [key]: k, ...v }));
@@ -1207,6 +1258,69 @@ function launchTerminal({ id, cwd, message, images, model, effort }) {
   return { terminal: hasWt ? 'Windows Terminal' : 'PowerShell window', scriptFile, images: shots.length, model: wantModel, effort: wantEffort };
 }
 
+/* ------------------------------------------------- provider keys
+
+   The only secret this app stores for you. Same trust model as an MCP server's `env` block
+   (plaintext JSON next to the server, protected by the filesystem and the app's own TOKEN/ACCESS
+   gate) - not a vault, just the same convention the rest of this app already uses. Never echoed
+   back whole once saved. */
+
+const PROVIDER_KEYS_FILE = process.env.FLEET_PROVIDER_KEYS_FILE || path.join(HERE, 'provider-keys.json');
+let providerKeys = readJson(PROVIDER_KEYS_FILE) || {};
+
+function saveProviderKey(provider, key) {
+  const k = String(key || '').trim();
+  if (!k) throw new Error('that key looks empty');
+  if (k.length > 400) throw new Error('that is longer than any real API key');
+  const backup = toTrash(PROVIDER_KEYS_FILE);
+  const next = { ...providerKeys, [provider]: { key: k, savedAt: Date.now() } };
+  writeAtomic(PROVIDER_KEYS_FILE, JSON.stringify(next, null, 2));
+  providerKeys = next;
+  return { backup };
+}
+
+function deleteProviderKey(provider) {
+  if (!providerKeys[provider]) return false;
+  toTrash(PROVIDER_KEYS_FILE);
+  const next = { ...providerKeys };
+  delete next[provider];
+  writeAtomic(PROVIDER_KEYS_FILE, JSON.stringify(next, null, 2));
+  providerKeys = next;
+  return true;
+}
+
+const getOpenAIKey = () => providerKeys.openai?.key || '';
+
+// Never the raw key - just enough to recognise it was set without re-showing it.
+function providerKeysPublic() {
+  const out = {};
+  for (const [id, rec] of Object.entries(providerKeys)) {
+    out[id] = { set: true, last4: String(rec.key || '').slice(-4) };
+  }
+  return out;
+}
+
+/* ------------------------------------------------- providers registry
+
+   Claude Code is a local CLI with its own on-disk transcripts and a resumable process - full
+   parity (live status, resume in a terminal). OpenAI has neither: it's an API key, and every
+   "session" only exists because this app created it. A future local-CLI agent (Codex, Gemini,
+   ...) would register here the same way Claude does, once one is actually installed to build
+   against - see server/providers/openai.mjs for the template such a provider would copy. */
+function providersPayload() {
+  return {
+    claude: {
+      label: 'Claude Code', kind: 'cli', configured: true,
+      canResumeInTerminal: true, hasFolder: true, hasStance: true, models: null, efforts: null,
+    },
+    openai: {
+      label: 'ChatGPT', kind: 'api-key', configured: !!getOpenAIKey(),
+      canResumeInTerminal: false, hasFolder: false, hasStance: false,
+      models: OPENAI_MODELS, efforts: [],
+    },
+  };
+}
+
 /* ------------------------------------------------- your layer of the app
 
    Sections, which cards are open, what you dismissed, the theme. This used to live only in one
@@ -1696,6 +1810,7 @@ function startChat({ id, cwd, message, images, model, effort, stance, fromThisPc
         cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       });
   run.child = child;
+  run.stop = () => child.kill();
 
   let buffer = '';
   child.stdout.setEncoding('utf8');
@@ -1745,6 +1860,39 @@ function startChat({ id, cwd, message, images, model, effort, stance, fromThisPc
   });
 
   return { runId, sessionId, stance: chosen.label, images: shots.length, resumed: !!id };
+}
+
+// OpenAI has no local process to spawn: runOpenAIChat() does the network turn itself and reports
+// back through the exact same event vocabulary Claude's spawned process emits above, so this
+// reuses the same runs/emit()/SSE machinery with no changes to either.
+function startOpenAIChatRun({ id, message, images, model }) {
+  if (images?.length) throw new Error('images are not supported for OpenAI chats yet');
+  const apiKey = getOpenAIKey();
+  const sessionId = id || crypto.randomUUID();
+  const runId = 'run_' + crypto.randomBytes(8).toString('hex');
+  const run = {
+    events: [], subscribers: new Set(), done: false, sessionId, cwd: '', images: 0,
+    startedAt: Date.now(), stance: 'ChatGPT', resumed: !!id, prompt: message,
+  };
+  runs.set(runId, run);
+  sweepRuns();
+
+  const endRun = (event) => {
+    if (run.done) return;
+    run.done = true; run.endedAt = Date.now();
+    emit(run, event);
+    for (const res of run.subscribers) res.end();
+    run.subscribers.clear();
+  };
+
+  const openaiRun = runOpenAIChat({
+    id: sessionId, message, model, apiKey,
+    onEvent: (event) => (event.type === 'fleet_end' ? endRun(event) : emit(run, event)),
+  });
+  run.stop = openaiRun.stop;
+  openaiRun.promise.catch((e) => endRun({ type: 'fleet_end', ok: false, error: String(e?.message || e) }));
+
+  return { runId, sessionId, stance: 'ChatGPT', images: 0, resumed: !!id };
 }
 
 function openTarget({ target, cwd, file }) {
@@ -1913,8 +2061,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/state') return json(res, 200, buildState());
     if (p === '/api/toolbox') return json(res, 200, toolbox());
     if (p === '/api/usage') return json(res, 200, usage());
+    if (p === '/api/providers') return json(res, 200, providersPayload());
     // Method-guarded: this path also takes a POST, and the read would otherwise swallow it.
     if (p === '/api/prefs' && req.method === 'GET') return json(res, 200, prefs);
+    if (p === '/api/provider-keys' && req.method === 'GET') return json(res, 200, providerKeysPublic());
 
     /* The write token is minted per server run and injected into the page once, so a tab that was
        open across a restart holds a stale one and every write fails with "bad token". This lets it
@@ -2026,12 +2176,18 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/chat') {
         const id = body.id ? String(body.id) : null;
         if (id && !/^[0-9a-fA-F-]{8,64}$/.test(id)) return json(res, 400, { error: 'bad id' });
-        const info = startChat({
-          id, cwd: String(body.cwd || ''), message: body.message, images: body.images,
-          model: body.model, effort: body.effort, stance: body.stance,
-          fromThisPc: fromThisMachine(req),
-        });
-        return json(res, 200, { ok: true, ...info });
+        // An existing id's provider is resolved from the server's own local index, never trusted
+        // from the client - so a stale or malicious `provider` can't redirect an existing
+        // session's resume into the wrong path. Only a brand-new chat's `provider` is honoured.
+        const provider = id ? (openaiHas(id) ? 'openai' : 'claude') : (body.provider === 'openai' ? 'openai' : 'claude');
+        const info = provider === 'openai'
+          ? startOpenAIChatRun({ id, message: body.message, images: body.images, model: body.model })
+          : startChat({
+              id, cwd: String(body.cwd || ''), message: body.message, images: body.images,
+              model: body.model, effort: body.effort, stance: body.stance,
+              fromThisPc: fromThisMachine(req),
+            });
+        return json(res, 200, { ok: true, provider, ...info });
       }
 
       // "I am done with this chat" - drops it out of the queue until the session moves again.
@@ -2084,6 +2240,26 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/prefs') return json(res, 200, { ok: true, prefs: savePrefs(body.patch) });
 
+      if (p === '/api/provider-keys') {
+        const provider = String(body.provider || '');
+        if (provider !== 'openai') return json(res, 400, { error: 'unknown provider' });
+        const { backup } = saveProviderKey(provider, body.key);
+        return json(res, 200, { ok: true, provider, backup });
+      }
+      if (p === '/api/provider-keys/delete') {
+        const provider = String(body.provider || '');
+        deleteProviderKey(provider);
+        return json(res, 200, { ok: true, provider });
+      }
+      if (p === '/api/provider-keys/test') {
+        const provider = String(body.provider || '');
+        if (provider !== 'openai') return json(res, 400, { error: 'unknown provider' });
+        // Tests whatever was just typed, not necessarily the saved key - so "Test" works before "Save".
+        const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : getOpenAIKey();
+        const result = await testOpenAIKey(key);
+        return json(res, 200, result);
+      }
+
       if (p === '/api/trash/read') return json(res, 200, { ok: true, name: body.name, text: readTrashVersion(body.name) });
       if (p === '/api/trash/empty') return json(res, 200, { ok: true, removed: emptyTrash() });
       if (p === '/api/trash/restore') {
@@ -2098,10 +2274,27 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/chat/forget') {
         const id = String(body.id || '');
-        if (!inPageChats.has(id)) return json(res, 404, { error: 'not a chat this app started' });
-        inPageChats.delete(id);
-        try { fs.writeFileSync(CHATS_FILE, JSON.stringify({ chats: [...inPageChats.values()] }, null, 2), 'utf8'); } catch {}
-        return json(res, 200, { ok: true, id, note: 'the transcript itself is untouched' });
+        // For Claude this only unpins the card - the transcript lives on independently on disk.
+        if (inPageChats.has(id)) {
+          inPageChats.delete(id);
+          try { fs.writeFileSync(CHATS_FILE, JSON.stringify({ chats: [...inPageChats.values()] }, null, 2), 'utf8'); } catch {}
+          return json(res, 200, { ok: true, id, note: 'the transcript itself is untouched' });
+        }
+        // For OpenAI the local file *is* the only copy, so "forget" here only unpins it from the
+        // board too - the file survives until /api/chat/delete removes it for good.
+        if (openaiHas(id) && openaiUnpin(id)) {
+          return json(res, 200, { ok: true, id, note: 'kept — use delete to remove it for good' });
+        }
+        return json(res, 404, { error: 'not a chat this app started' });
+      }
+
+      // OpenAI-only: unlike Claude's forget, this actually removes the local copy - it's the
+      // only one that ever existed.
+      if (p === '/api/chat/delete') {
+        const id = String(body.id || '');
+        if (!openaiHas(id)) return json(res, 404, { error: 'no such chat' });
+        openaiDelete(id);
+        return json(res, 200, { ok: true, id });
       }
 
       if (p === '/api/mcp/save') return json(res, 200, { ok: true, ...saveMcpServer(body) });
@@ -2111,7 +2304,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/chat/stop') {
         const run = runs.get(String(body.run || ''));
         if (!run) return json(res, 404, { error: 'no such run' });
-        try { run.child?.kill(); } catch { /* already gone */ }
+        try { run.stop?.(); } catch { /* already gone */ }
         return json(res, 200, { ok: true });
       }
       if (p === '/api/open') return json(res, 200, { ok: true, ...openTarget(body) });

@@ -13,6 +13,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (popover) { closePopover(); return; }
+  if (!$('#key-modal').hidden) { closeKeyModal(); return; }
   if (!$('#editor').hidden) closeEditor();
 }, true);
 

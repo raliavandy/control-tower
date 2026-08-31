@@ -10,9 +10,9 @@
 const CARD_MESSAGES = 12;
 const cardConvos = new Map();   // session id -> { at, loading }
 
-function compactMsg(m) {
+function compactMsg(m, assistant) {
   const el = h('div', 'cmsg ' + m.role + (m.sidechain ? ' sidechain' : ''));
-  el.append(h('span', 'cmsg-who', m.sidechain ? 'subagent' : m.role === 'user' ? (m.isToolTurn ? 'tool' : 'you') : 'claude'));
+  el.append(h('span', 'cmsg-who', m.sidechain ? 'subagent' : m.role === 'user' ? (m.isToolTurn ? 'tool' : 'you') : (assistant || 'claude')));
   const wrap = h('div', 'cmsg-body');
   if (m.text) wrap.append(h('p', 'cmsg-text', m.text));
   if (m.images?.length) wrap.append(h('p', 'cmsg-text dim', `🖼 ${m.images.length} image${m.images.length > 1 ? 's' : ''}`));
@@ -46,7 +46,8 @@ async function loadCardConvo(id) {
     cardConvos.set(id, { at, loading: false });
     if (!target) return;
     if (convo.error) { target.replaceChildren(h('p', 'cmsg-note', convo.error)); return; }
-    const nodes = convo.items.map(compactMsg);
+    const label = assistantLabel(cur(id).provider);
+    const nodes = convo.items.map((m) => compactMsg(m, label));
     target.replaceChildren(...nodes);
     if (convo.total > convo.items.length) {
       target.prepend(h('p', 'cmsg-note', `last ${convo.items.length} of ${convo.total}+ — open the transcript for the rest`));
@@ -95,6 +96,7 @@ const ORIGIN_HINT = {
 };
 
 function chipsFor(s) {
+  const caps = providerOf(s);
   const out = [];
   out.push(chip(s.project, 'project', s.cwd));
   // Where it came from, always shown: a terminal, an editor, the app, or this page.
@@ -103,20 +105,27 @@ function chipsFor(s) {
       ORIGIN_HINT[s.origin.key] || `entrypoint: ${s.origin.label}`));
   }
   if (s.gitBranch) out.push(chip(s.gitBranch, 'branch', 'git branch'));
-  out.push(chipMenu(shortModel(s.model) || 'model', 'Model — click to reopen this chat on another one', (a) => openModelMenu(s, a)));
-  out.push(chipMenu('effort ' + (s.effort || 'medium'), 'Effort — click to reopen this chat at another level', (a) => openEffortMenu(s, a)));
+  // Reopening on another model/effort means relaunching a terminal - meaningless for a provider
+  // with no terminal to relaunch, so those providers get a plain, non-interactive chip instead.
+  out.push(caps.canResumeInTerminal
+    ? chipMenu(shortModel(s.model) || 'model', 'Model — click to reopen this chat on another one', (a) => openModelMenu(s, a))
+    : chip(shortModel(s.model) || 'model', '', 'model used for this chat'));
+  if (caps.canResumeInTerminal) {
+    out.push(chipMenu('effort ' + (s.effort || 'medium'), 'Effort — click to reopen this chat at another level', (a) => openEffortMenu(s, a)));
+  }
   if (s.permissionMode && s.permissionMode !== 'default') out.push(chip(s.permissionMode, '', 'permission mode'));
   if (s.queued) out.push(chip(s.queued + ' queued', 'queued', 'messages waiting in this session\'s queue'));
   if (s.subagentsRunning) out.push(chip(s.subagentsRunning + ' subagent' + (s.subagentsRunning > 1 ? 's' : ''), 'subagents', 'agents/workflows still running'));
-  if (s.promptCount) out.push(chip(s.promptCount + '↑ / ' + s.turnCount + '↓', '', 'your prompts / Claude turns in the recent window'));
+  if (s.promptCount) out.push(chip(s.promptCount + '↑ / ' + s.turnCount + '↓', '', 'your prompts / turns in the recent window'));
   if (s.tokens?.context) out.push(chip('ctx ' + kilo(s.tokens.context), '', 'context size on the last request'));
   for (const name of Object.keys(s.mcpUsed || {})) out.push(chip(name, 'mcp', 'MCP server used in this window'));
   for (const name of Object.keys(s.skillsUsed || {})) out.push(chip('/' + name, 'skill', 'skill invoked in this window'));
   if (s.inPage && s.inPageTurns) out.push(chip(`${s.inPageTurns} turn${s.inPageTurns > 1 ? 's' : ''} here`, 'inpage', 'messages you sent from this page'));
-  out.push(chip(s.alive ? 'pid ' + s.pid : s.status === 'here' ? 'no terminal' : 'closed', '',
-    s.alive ? (s.entrypoint || '') + ' · ' + (s.procName || '')
-      : s.status === 'here' ? 'this chat runs in the page — send a message to continue it'
-      : 'no live process'));
+  const procLabel = caps.kind === 'api-key' ? 'via API' : s.status === 'here' ? 'no terminal' : 'closed';
+  const procHint = caps.kind === 'api-key' ? 'runs through the API — nothing local to resume'
+    : s.status === 'here' ? 'this chat runs in the page — send a message to continue it'
+    : 'no live process';
+  out.push(chip(s.alive ? 'pid ' + s.pid : procLabel, '', s.alive ? (s.entrypoint || '') + ' · ' + (s.procName || '') : procHint));
   return out;
 }
 
@@ -139,7 +148,7 @@ function activityFor(s) {
    also means the phone and the desktop never disagree about who is still waiting. */
 async function toggleIdle(id) {
   const s = cur(id);
-  if (!s.id || !s.alive) return;
+  if (!s.id || (!s.alive && s.status === 'ended')) return;
   try { await post('/api/idle', { id, idle: !s.idleMarked }); }
   catch (e) { toast('Could not change that', e.message, 'bad'); }
 }
@@ -175,9 +184,18 @@ function makeCard(s) {
     dismissed[s.id] = cur(s.id).lastActivity; store.set('dismissed', dismissed); render();
   });
   el.querySelector('.act-forget').addEventListener('click', async () => {
-    if (!confirm('Forget this chat?\n\nIt stops being pinned to the board as an in-page chat. The transcript itself is untouched.')) return;
-    try { await post('/api/chat/forget', { id: s.id }); toast('Forgotten', 'the transcript is still there', 'good'); }
+    const claude = cur(s.id).provider === 'claude';
+    const msg = claude
+      ? 'Forget this chat?\n\nIt stops being pinned to the board as an in-page chat. The transcript itself is untouched.'
+      : 'Forget this chat?\n\nIt comes off the board, but the conversation itself is kept — use Delete to remove it for good.';
+    if (!confirm(msg)) return;
+    try { await post('/api/chat/forget', { id: s.id }); toast('Forgotten', claude ? 'the transcript is still there' : 'still saved — delete removes it for good', 'good'); }
     catch (e) { toast('Could not forget it', e.message, 'bad'); }
+  });
+  el.querySelector('.act-delete').addEventListener('click', async () => {
+    if (!confirm('Delete this chat for good?\n\nThis app is the only copy of this conversation — there is no transcript elsewhere to fall back on.')) return;
+    try { await post('/api/chat/delete', { id: s.id }); toast('Deleted', '', 'good'); }
+    catch (e) { toast('Could not delete it', e.message, 'bad'); }
   });
   el.querySelector('.card-expand').addEventListener('click', (e) => { e.stopPropagation(); toggleExpand(s.id); });
   el.addEventListener('click', (e) => {
@@ -263,7 +281,12 @@ function paintCard(el, s) {
 
   shotTray(s.id, el.querySelector('.shots'));
 
+  const caps = providerOf(s);
+  el.querySelector('.act-copy').hidden = !caps.canResumeInTerminal;
+  el.querySelector('.act-code').hidden = !caps.hasFolder;
+  el.querySelector('.act-folder').hidden = !caps.hasFolder;
   el.querySelector('.act-forget').hidden = !s.inPage;
+  el.querySelector('.act-delete').hidden = s.provider !== 'openai';
 
   const mine = sectionList.filter((x) => x.members.includes(s.id));
   const sectionsBtn = el.querySelector('.act-sections');
@@ -272,9 +295,10 @@ function paintCard(el, s) {
   sectionsBtn.classList.toggle('on', mine.length > 0);
   sectionsBtn.title = mine.length ? 'In ' + mine.map((x) => x.name).join(', ') : 'Add this chat to a section';
 
-  // Only live chats can be marked — an ended one is out of the queue already.
+  // An ended chat is already out of the queue, so marking it idle would do nothing - but a chat
+  // with no live process isn't necessarily ended (an OpenAI chat between turns never has one).
   const idleBtn = el.querySelector('.act-idle');
-  idleBtn.hidden = !s.alive;
+  idleBtn.hidden = !s.alive && s.status === 'ended';
   const idleLabel = s.idleMarked ? 'idle — undo' : 'mark idle';
   if (idleBtn.textContent !== idleLabel) idleBtn.textContent = idleLabel;
   idleBtn.classList.toggle('on', !!s.idleMarked);
@@ -284,10 +308,14 @@ function paintCard(el, s) {
 
   const sendBtn = el.querySelector('.send');
   const ta = el.querySelector('textarea');
-  if (s.alive) {
+  // "Resume" (a new terminal reattaching to a closed session) only means anything for a
+  // provider with a terminal to reattach to - every other provider's send is always just a send.
+  if (s.alive || !caps.canResumeInTerminal) {
     sendBtn.textContent = 'Send';
     ta.placeholder = 'Reply — Ctrl+Enter to send…';
-    ta.title = 'Ctrl+Enter sends; Enter just starts a new line.\nSending opens a new terminal resuming this session with your message.\nThe window already running this session keeps its own state.\nPaste or drop images to send them along.';
+    ta.title = caps.canResumeInTerminal
+      ? 'Ctrl+Enter sends; Enter just starts a new line.\nSending opens a new terminal resuming this session with your message.\nThe window already running this session keeps its own state.\nPaste or drop images to send them along.'
+      : 'Ctrl+Enter sends; Enter just starts a new line.';
   } else {
     sendBtn.textContent = 'Resume';
     ta.placeholder = 'Resume this chat — Ctrl+Enter to send…';

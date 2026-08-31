@@ -9,7 +9,7 @@ await describe('state', async () => {
   ok(typeof s.stats?.live === 'number', 'stats.live is a number');
   const one = s.sessions[0];
   if (!one) { ok(true, 'no sessions on this machine — skipped the per-session shape'); return; }
-  for (const key of ['id', 'alive', 'status', 'needsYou', 'project', 'lastActivity', 'mcpUsed', 'skillsUsed', 'inPage']) {
+  for (const key of ['id', 'provider', 'alive', 'status', 'needsYou', 'project', 'lastActivity', 'mcpUsed', 'skillsUsed', 'inPage']) {
     ok(key in one, `a session carries ${key}`);
   }
   ok(['working', 'waiting-for-you', 'blocked', 'done', 'idle', 'here', 'ended'].includes(one.status),
@@ -92,6 +92,17 @@ await describe('prefs', async () => {
   eq(after.groupby, 'status', 'the known key stuck');
   ok(!('bogusKey' in after), 'an unknown key was ignored rather than stored');
   await post('/api/prefs', { patch: { groupby: before.groupby ?? null } });
+});
+
+await describe('providers', async () => {
+  const p = await getJson('/api/providers');
+  ok(p.claude?.configured === true, 'Claude Code is always registered and configured');
+  for (const key of ['label', 'kind', 'configured', 'canResumeInTerminal', 'hasFolder', 'hasStance']) {
+    ok(key in p.claude, `claude carries ${key}`);
+    ok(key in p.openai, `openai carries ${key}`);
+  }
+  ok(Array.isArray(p.openai.models) && p.openai.models.length > 0, 'openai comes with a curated model list');
+  ok(p.openai.canResumeInTerminal === false, 'there is no terminal to resume an API-only chat in');
 });
 
 await describe('trash', async () => {

@@ -17,6 +17,7 @@ async function openDrawer(id) {
   drawerLimit = 80;
   drawerFind = '';
   newChatMode = false;
+  applyProviderChrome();
   // The panel adopts whichever run belongs to the chat being opened, if any.
   chatRun = runFor(id);
   const mine = !!chatRun;
@@ -81,7 +82,8 @@ function paintDrawer(scrollTo) {
       return hay.toLowerCase().includes(q);
     });
 
-  body.replaceChildren(...kept.map(({ m, i }) => msgNode(m, i, q, drawerWho !== 'all' || !!q)));
+  const label = assistantLabel(drawerId ? cur(drawerId).provider : activeProvider());
+  body.replaceChildren(...kept.map(({ m, i }) => msgNode(m, i, q, drawerWho !== 'all' || !!q, label)));
   reattachLive();
 
   const filtering = drawerWho !== 'all' || q;
@@ -122,10 +124,10 @@ function withMarks(text, q) {
   return frag;
 }
 
-function msgNode(m, index, q, jumpable) {
+function msgNode(m, index, q, jumpable, assistant) {
   const el = h('div', 'msg ' + m.role + (m.sidechain ? ' sidechain' : ''));
   el.dataset.i = index;
-  const head = h('div', 'msg-head', (m.sidechain ? 'subagent · ' : '') + (m.role === 'user' ? (m.isToolTurn ? 'tool result' : 'you') : 'claude'));
+  const head = h('div', 'msg-head', (m.sidechain ? 'subagent · ' : '') + (m.role === 'user' ? (m.isToolTurn ? 'tool result' : 'you') : (assistant || 'claude')));
   if (m.ts) head.append(h('span', '', new Date(m.ts).toLocaleTimeString()));
   if (jumpable) {
     const jump = h('button', 'msg-jump', 'show in context');
