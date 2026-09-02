@@ -1,0 +1,33 @@
+{
+  "name": "ralias-cockpit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A zero-dependency local web dashboard for monitoring and interacting with every Claude Code session on your machine, with an optional ChatGPT provider.",
+  "license": "MIT",
+  "homepage": "https://github.com/raliavandy/ralias-cockpit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raliavandy/ralias-cockpit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/raliavandy/ralias-cockpit/issues"
+  },
+  "author": "raliavandy",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/run.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "dashboard",
+    "cli-companion",
+    "windows",
+    "local-tool"
+  ]
+}

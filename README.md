@@ -11,6 +11,9 @@ No dependencies, no install, and the server binds to 127.0.0.1 only — nothing 
 with one opt-in exception: if you set up the OpenAI provider, your own key talks to OpenAI's API
 when you start a ChatGPT chat. See [Providers](#providers).
 
+**Windows only, for now.** Terminal launching goes through PowerShell and Windows Terminal — there's
+no macOS/Linux support yet.
+
 The server window opens **minimised** so it never sits on top of the dashboard — it stays in the
 taskbar as *Rals Cockpit*, and closing that window stops the server. Run `start.cmd` again while
 it is already up and it just opens the page instead of starting a second one.
@@ -493,3 +496,11 @@ response, which is exactly why the token works. In the default mode every reques
 on a loopback Host header. With `FLEET_LAN=1` the port opens to the network and the access code
 becomes the thing standing in the way — requests are judged by the socket's real address, not by
 a Host header a client can invent.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Contributing
+
+Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md).

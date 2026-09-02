@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main, open-source-v1-release]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    # Windows-only app (PowerShell + Windows Terminal launching) — windows-latest is the only
+    # runner that exercises the real `where wt.exe` / `where claude` resolution paths.
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: ['18.x', '20.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # No install step: zero runtime dependencies.
+      # test/ui.mjs (Playwright) self-skips with a passing note when Playwright isn't installed —
+      # deliberately not installed here to keep CI dependency-free.
+      - run: node test/run.mjs
