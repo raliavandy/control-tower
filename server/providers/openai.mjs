@@ -49,6 +49,17 @@ export function openaiHas(id) {
   return fs.existsSync(fileFor(id));
 }
 
+// For deep search: every chat file this provider owns, so it can be raw-scanned for a needle the
+// same way server.mjs scans Claude's own transcript files.
+export function openaiChatFiles() {
+  if (!CHATS_DIR) return [];
+  let files = [];
+  try { files = fs.readdirSync(CHATS_DIR); } catch { return []; }
+  return files
+    .filter((f) => f.endsWith('.json') && !f.endsWith('.tmp'))
+    .map((f) => ({ id: f.slice(0, -5), file: path.join(CHATS_DIR, f) }));
+}
+
 export function openaiDelete(id) {
   chatCache.delete(id);
   try { fs.rmSync(fileFor(id), { force: true }); return true; } catch { return false; }

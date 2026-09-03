@@ -33,7 +33,7 @@ async function runSearch(q) {
       open.addEventListener('click', () => { setView('sessions'); jumpTo(hit.id); openDrawer(hit.id); });
       head.append(open);
       head.append(h('span', 'badge muted', hit.project));
-      head.append(h('span', 'badge muted', hit.role === 'user' ? 'you' : 'claude'));
+      head.append(h('span', 'badge muted', hit.role === 'user' ? 'you' : assistantLabel(hit.provider)));
       if (hit.ts) head.append(h('span', 'hit-when', new Date(hit.ts).toLocaleString()));
       row.append(head);
       const snip = h('p', 'hit-snip');

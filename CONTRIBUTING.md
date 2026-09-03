@@ -35,6 +35,14 @@ not part of this repo's dependencies); without it, it self-skips with a passing 
 No linter is configured — match the existing files. Keep diffs small and focused, and comment only
 the *why* (a non-obvious constraint or workaround), not the *what*.
 
+## Adding a provider
+
+An OpenAI-compatible one (Gemini, DeepSeek, anything speaking the same `chat/completions` shape)
+is meant to be one file plus one registry entry — see [Providers](README.md#providers) in the
+README for what that means in practice, and copy `server/providers/openai.mjs` as the template.
+A local-CLI provider (a hypothetical Codex or Gemini CLI) is a different shape entirely and would
+follow Claude's own code in `server.mjs` instead — open an issue first if that's what you're after.
+
 ## Reporting bugs / requesting features
 
 Use the issue templates.

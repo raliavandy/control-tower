@@ -8,8 +8,9 @@ name — renaming those would break saved settings for no gain.)
 
 Double-click **start.cmd**. It serves <http://localhost:7457/> and opens your browser.
 No dependencies, no install, and the server binds to 127.0.0.1 only — nothing leaves the machine,
-with one opt-in exception: if you set up the OpenAI provider, your own key talks to OpenAI's API
-when you start a ChatGPT chat. See [Providers](#providers).
+with two opt-in exceptions: if you set up an API-key provider (OpenAI today), your own key talks
+to its API when you start a chat with it — see [Providers](#providers) — and clicking **Check for
+updates** in the settings menu (never automatic) asks GitHub what the latest release is.
 
 **Windows only, for now.** Terminal launching goes through PowerShell and Windows Terminal — there's
 no macOS/Linux support yet.
@@ -17,6 +18,10 @@ no macOS/Linux support yet.
 The server window opens **minimised** so it never sits on top of the dashboard — it stays in the
 taskbar as *Rals Cockpit*, and closing that window stops the server. Run `start.cmd` again while
 it is already up and it just opens the page instead of starting a second one.
+
+Prefer no window at all? **start-tray.cmd** runs the same server with a system tray icon instead —
+right-click it for Open, View log or Quit. Only one of the two should be running at a time; either
+one detects the other and just opens the page instead of starting a second server.
 
 ```
 node server.mjs            # same thing, from a terminal
@@ -276,6 +281,29 @@ allowed, when it resets, and whether extra usage is available. It is not on disk
 returns it on every turn, so it appears once you have sent one message from the in-page chat, and
 goes stale from there. Run `/usage` inside Claude Code for Anthropic's own breakdown.
 
+## Tray mode
+
+**`start-tray.cmd`** runs the exact same server as `start.cmd`, just with no visible window at
+all — a system tray icon takes its place. Right-click it (or double-click to open the dashboard):
+
+| | |
+|---|---|
+| **Open Rals Cockpit** | opens the dashboard in your browser |
+| **View log** | the server's own stdout/stderr, since there's no console left to read it from — `%TEMP%\ralias-cockpit-tray.log` |
+| **Quit** | stops the server and removes the icon |
+
+It's the same detection as `start.cmd`: if the server is already up on the configured port,
+running `start-tray.cmd` again just opens the page rather than starting a second one — and the
+reverse holds too, so don't run both launchers for the same port at once.
+
+Two things worth knowing about how it's built, since neither adds a dependency: getting a
+`powershell.exe` script to run with genuinely no window (not even a flash) uses the standard
+`wscript`-running-a-tiny-`.vbs` trick, because `-WindowStyle Hidden` alone doesn't fully suppress
+it. And the server process is assigned to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`,
+so it can never be orphaned running invisibly — if the tray process ends for *any* reason (Quit,
+a crash, ending it from Task Manager), Windows itself guarantees the server goes down with it, not
+just the click-through Quit handler.
+
 ## From your phone
 
 `start.cmd` stays loopback-only. **`start-phone.cmd`** binds the port to your local network and
@@ -408,10 +436,21 @@ regardless of what this app does, so *forget* just unpins the card. An OpenAI ch
 only copy, so *forget* only unpins it (it sinks into history, same as a Claude session that isn't
 running), while **Delete** removes it for good.
 
-**Local-CLI agents** (a hypothetical Codex CLI, Gemini CLI, ...) could get the same full parity
-Claude has — live status, resume in a terminal — because they'd follow the same on-disk pattern.
-None of that is built yet: nothing like that was installed on this machine to build and test
-against. `server/providers/claude.mjs` is the template such a provider would copy.
+**Adding another API-key provider** (Gemini, DeepSeek, or anything speaking the same
+OpenAI-compatible `chat/completions` format — which covers most hosted models) is meant to be one
+file plus one registry entry, not a search-and-replace across this codebase. Every route that
+touches a chat — `/api/chat`, forget, delete, key test, deep search, usage — reads the
+`API_PROVIDERS` table in `server.mjs` rather than naming a provider, so `server/providers/openai.mjs`
+is the template to copy: same session shape, same `fleet_text`/`stream_event` event vocabulary, same
+file-per-conversation storage. The frontend needs nothing extra either — capability flags
+(`hasFolder`, `hasStance`, `models`, `efforts`, `hasImages`, `deletable`) already drive the UI
+generically through `providerOf()`.
+
+**Local-CLI agents** (a hypothetical Codex CLI, Gemini CLI accessed as a CLI rather than an API)
+are a different shape entirely — no API key, a real local process, its own resumable session — and
+would follow Claude's own pattern in `server.mjs` (`claudeSessions()`, `startChat()`, ...) rather
+than the `API_PROVIDERS` registry. None of that is built yet: nothing like that was installed on
+this machine to build and test against.
 
 ## Where the data comes from
 
@@ -447,8 +486,11 @@ desktop app live server-side and aren't in `~/.claude`.
 
 | | |
 |---|---|
-| `server.mjs` | scanner, inventory, JSON API, SSE, the headless chat runner, all the write paths |
+| `server.mjs` | scanner, inventory, JSON API, SSE, the headless chat runner, all the write paths, the `API_PROVIDERS` registry |
 | `server/providers/openai.mjs` | the OpenAI provider: its own session store, read side, and chat streaming |
+| `server/lib/util.mjs` | tiny helpers shared between `server.mjs` and every provider module |
+| `start.cmd` · `start-tray.cmd` | double-click either to run it — a minimised console window, or a system tray icon |
+| `tray.ps1` | the tray icon itself: runs the server hidden, backed by a Job Object so it can't be orphaned |
 | `public/index.html` | markup + card and group templates |
 | `public/app-*.js` | the front end, in load order — core, shots, cards, board, menus, inventory, usage, search, chat, drawer, chrome |
 | `public/pixel.js` | the mascots: 12×12 string art → `<rect>`s, two-frame flipbooks, tab icon |
@@ -486,6 +528,7 @@ colour from the `.px-body` / `.px-ink` classes, not from attributes.
 
 | `start.cmd` | double-click to run it, loopback only |
 | `start-phone.cmd` | same, but reachable from your phone with an access code |
+| `start-tray.cmd` | same server, a tray icon instead of a console window — see [Tray mode](#tray-mode) |
 
 POST actions require a per-run token that the server injects into the page, so a random website
 can't drive your terminal through this port. That token belongs to one server run — restart the

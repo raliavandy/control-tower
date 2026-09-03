@@ -291,7 +291,11 @@ fillChatSelects();
 // The drawer box is reused across sessions, so it attaches to whichever one is open.
 (() => {
   const ta = $('#drawer-reply');
+  // A new chat has no session id yet, so this checks the picked provider directly rather than
+  // going through cur() the way wireShots() does for an existing card.
+  const canImage = () => providerOf({ provider: activeProvider() }).hasImages;
   ta.addEventListener('paste', (e) => {
+    if (!canImage()) return;
     const files = [...(e.clipboardData?.items || [])]
       .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
       .map((i) => i.getAsFile())
@@ -301,12 +305,14 @@ fillChatSelects();
     files.forEach((f) => addShot(composeKey(), f));
   });
   ta.addEventListener('dragover', (e) => {
+    if (!canImage()) return;
     if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
     e.preventDefault();
     ta.classList.add('dropping');
   });
   ta.addEventListener('dragleave', () => ta.classList.remove('dropping'));
   ta.addEventListener('drop', (e) => {
+    if (!canImage()) return;
     ta.classList.remove('dropping');
     const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'));
     if (!files.length) return;

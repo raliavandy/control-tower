@@ -208,6 +208,8 @@ function render() {
     : section ? `“${section.name}” is empty. Switch to everything, then use the sections link on a card to add it here.`
     : filter === 'needs' ? 'Nobody is waiting on you. ✨'
     : filter === 'live' ? 'No Claude Code sessions are running right now.'
+    // A genuinely fresh install: nothing under ~/.claude at all, not just filtered down to zero.
+    : !sessions.length ? 'Nothing here yet. Click “+ New chat” above to start one, or open a terminal and run claude.'
     : 'No sessions found under ~/.claude.';
 }
 
@@ -257,6 +259,12 @@ function paintHeader() {
   undo.hidden = !hidden.length || view !== 'sessions';
   undo.textContent = `bring back ${hidden.length} dismissed`;
   undo.title = hidden.map((s) => s.title).join('\n');
+
+  const doneNow = shown.filter((s) => s.status === 'done');
+  const dismissDone = $('#dismiss-done');
+  dismissDone.hidden = !doneNow.length || view !== 'sessions';
+  dismissDone.textContent = `dismiss ${doneNow.length} done`;
+  dismissDone.title = doneNow.map((s) => s.title).join('\n');
 
   document.title = needs.length ? `(${needs.length}) Rals Cockpit` : 'Rals Cockpit';
   PX.favicon(blocked ? 'blocked' : needs.length ? 'waiting-for-you' : live.length ? 'working' : 'ended');

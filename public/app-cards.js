@@ -184,12 +184,15 @@ function makeCard(s) {
     dismissed[s.id] = cur(s.id).lastActivity; store.set('dismissed', dismissed); render();
   });
   el.querySelector('.act-forget').addEventListener('click', async () => {
-    const claude = cur(s.id).provider === 'claude';
-    const msg = claude
-      ? 'Forget this chat?\n\nIt stops being pinned to the board as an in-page chat. The transcript itself is untouched.'
-      : 'Forget this chat?\n\nIt comes off the board, but the conversation itself is kept — use Delete to remove it for good.';
+    // A provider that keeps no independent copy of the conversation (the same providers this
+    // app can actually Delete for good) needs different wording than one whose transcript lives
+    // on regardless of what this board does.
+    const deletable = providerOf(cur(s.id)).deletable;
+    const msg = deletable
+      ? 'Forget this chat?\n\nIt comes off the board, but the conversation itself is kept — use Delete to remove it for good.'
+      : 'Forget this chat?\n\nIt stops being pinned to the board as an in-page chat. The transcript itself is untouched.';
     if (!confirm(msg)) return;
-    try { await post('/api/chat/forget', { id: s.id }); toast('Forgotten', claude ? 'the transcript is still there' : 'still saved — delete removes it for good', 'good'); }
+    try { await post('/api/chat/forget', { id: s.id }); toast('Forgotten', deletable ? 'still saved — delete removes it for good' : 'the transcript is still there', 'good'); }
     catch (e) { toast('Could not forget it', e.message, 'bad'); }
   });
   el.querySelector('.act-delete').addEventListener('click', async () => {
@@ -286,7 +289,7 @@ function paintCard(el, s) {
   el.querySelector('.act-code').hidden = !caps.hasFolder;
   el.querySelector('.act-folder').hidden = !caps.hasFolder;
   el.querySelector('.act-forget').hidden = !s.inPage;
-  el.querySelector('.act-delete').hidden = s.provider !== 'openai';
+  el.querySelector('.act-delete').hidden = !caps.deletable;
 
   const mine = sectionList.filter((x) => x.members.includes(s.id));
   const sectionsBtn = el.querySelector('.act-sections');

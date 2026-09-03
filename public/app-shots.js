@@ -64,8 +64,12 @@ function paintShots(id) {
 }
 
 // Paste and drag-drop both land here; anything that is not an image is left to the textarea.
+// A provider that can't take images (today: any API-key provider) just never intercepts these -
+// paste falls through to the browser's normal handling, and an un-prevented dragover shows the
+// "not allowed" cursor on its own, so there's nothing extra to tell the user.
 function wireShots(id, ta) {
   ta.addEventListener('paste', (e) => {
+    if (!providerOf(cur(id)).hasImages) return;
     const files = [...(e.clipboardData?.items || [])]
       .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
       .map((i) => i.getAsFile())
@@ -75,12 +79,14 @@ function wireShots(id, ta) {
     files.forEach((f) => addShot(id, f));
   });
   ta.addEventListener('dragover', (e) => {
+    if (!providerOf(cur(id)).hasImages) return;
     if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
     e.preventDefault();
     ta.classList.add('dropping');
   });
   ta.addEventListener('dragleave', () => ta.classList.remove('dropping'));
   ta.addEventListener('drop', (e) => {
+    if (!providerOf(cur(id)).hasImages) return;
     const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'));
     ta.classList.remove('dropping');
     if (!files.length) return;

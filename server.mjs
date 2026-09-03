@@ -12,7 +12,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   configureOpenAI, openaiHas, openaiSessions, openaiReadConversation, openaiDelete, openaiUnpin,
-  runOpenAIChat, testOpenAIKey, OPENAI_MODELS, openaiUsageEntries,
+  runOpenAIChat, testOpenAIKey, OPENAI_MODELS, openaiUsageEntries, openaiChatFiles,
 } from './server/providers/openai.mjs';
 import { clip, localDay } from './server/lib/util.mjs';
 
@@ -23,6 +23,11 @@ const SESSIONS_DIR = path.join(CLAUDE_DIR, 'sessions');
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
 const PUBLIC_DIR = path.join(HERE, 'public');
 configureOpenAI(HERE);
+
+const PKG = readJson(path.join(HERE, 'package.json')) || {};
+const APP_VERSION = PKG.version || '0.0.0';
+// owner/repo, parsed once from package.json's own repository field rather than hardcoded twice.
+const REPO_SLUG = /github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/.exec(PKG.repository?.url || '')?.[1] || null;
 
 const PORT = Number(process.env.FLEET_PORT || 7457);
 const TOKEN = crypto.randomBytes(16).toString('hex');
@@ -475,7 +480,8 @@ function claudeSessions(now) {
 
 function buildState() {
   const now = Date.now();
-  const sessions = [...claudeSessions(now), ...openaiSessions(now)];
+  const sessions = claudeSessions(now);
+  for (const p of Object.values(API_PROVIDERS)) sessions.push(...p.sessions(now));
 
   // Claude's own collector already resolves idle-marking itself (idleMarked() is called once
   // inline per session, since a chat's own lastActivity clears its own mark). Other providers
@@ -555,10 +561,12 @@ function findRow(file, size, uuid) {
   return scan(BIG_TAIL_BYTES) || (size <= 96 * 1024 * 1024 ? scan(size) : null);
 }
 
-// Dispatches by provider before doing any real work: an OpenAI id never appears in Claude's own
-// transcript index, so this only needs to ask "do we have an OpenAI chat by this id" first.
+// Dispatches by provider before doing any real work: none of the registered API-key providers'
+// ids ever appear in Claude's own transcript index, so this only needs to ask "does one of them
+// have a chat by this id" first.
 function readConversation(id, limit = 60) {
-  if (openaiHas(id)) return openaiReadConversation(id, limit);
+  const provider = apiProviderFor(id);
+  if (provider) return API_PROVIDERS[provider].readConversation(id, limit);
   return claudeReadConversation(id, limit);
 }
 
@@ -711,16 +719,19 @@ function buildUsage() {
     }
   }
 
-  // OpenAI has no on-disk cache-hit concept and no forked-transcript replay to dedupe, so its
-  // entries fold straight into the same day/model/project buckets Claude's own entries use -
-  // the whole point of a shared entry shape is that the view above doesn't need to know or care
-  // which provider a given bar or ranking came from.
-  for (const e of openaiUsageEntries()) {
-    bump(days, e.day, e);
-    bump(models, e.model, e);
-    bump(projects, e.project, e);
-    bump(sessions, e.sessionId, e);
-    bump(totalsMap, 'all', e);
+  // None of the API-key providers have an on-disk cache-hit concept or forked-transcript replay
+  // to dedupe, so their entries fold straight into the same day/model/project buckets Claude's
+  // own entries use - the whole point of a shared entry shape is that the view above doesn't
+  // need to know or care which provider a given bar or ranking came from.
+  for (const p of Object.values(API_PROVIDERS)) {
+    if (!p.usageEntries) continue;
+    for (const e of p.usageEntries()) {
+      bump(days, e.day, e);
+      bump(models, e.model, e);
+      bump(projects, e.project, e);
+      bump(sessions, e.sessionId, e);
+      bump(totalsMap, 'all', e);
+    }
   }
 
   const rows = (map, key) => [...map].map(([k, v]) => ({ [key]: k, ...v }));
@@ -1281,7 +1292,8 @@ function deleteProviderKey(provider) {
   return true;
 }
 
-const getOpenAIKey = () => providerKeys.openai?.key || '';
+const getProviderKey = (id) => providerKeys[id]?.key || '';
+const getOpenAIKey = () => getProviderKey('openai');
 
 // Never the raw key - just enough to recognise it was set without re-showing it.
 function providerKeysPublic() {
@@ -1294,23 +1306,58 @@ function providerKeysPublic() {
 
 /* ------------------------------------------------- providers registry
 
-   Claude Code is a local CLI with its own on-disk transcripts and a resumable process - full
-   parity (live status, resume in a terminal). OpenAI has neither: it's an API key, and every
-   "session" only exists because this app created it. A future local-CLI agent (Codex, Gemini,
-   ...) would register here the same way Claude does, once one is actually installed to build
-   against - see server/providers/openai.mjs for the template such a provider would copy. */
+   Claude Code is a local CLI with its own on-disk transcripts and a resumable process, and stays
+   first-class throughout this file - a real terminal to launch, a cwd, an edit/full-access stance.
+   Nothing else here has any of that: every OTHER provider is just an API key talking over HTTP,
+   with every "session" only existing because this app created a JSON file for it. Because those
+   all share the same shape, they share one dispatch table instead of a hand-written branch per
+   route - adding one (Gemini, DeepSeek, any OpenAI-compatible endpoint) means writing a module
+   shaped like server/providers/openai.mjs and adding one entry below. Nothing else in this file
+   changes: /api/chat, /api/chat/forget, /api/chat/delete, /api/provider-keys*, buildState() and
+   buildUsage() all read this table rather than naming a provider.
+
+   `has(id)` must be cheap (a file-existence check, not a directory walk) - apiProviderFor() calls
+   every entry's `has()` on each dispatch, falling back to Claude with no check of its own, exactly
+   the way this app has always resolved "is this id an OpenAI chat" before treating it as Claude's. */
+const API_PROVIDERS = {
+  openai: {
+    label: 'ChatGPT', models: OPENAI_MODELS, efforts: [], hasImages: false,
+    configured: () => !!getProviderKey('openai'),
+    sessions: (now) => openaiSessions(now),
+    has: (id) => openaiHas(id),
+    readConversation: (id, limit) => openaiReadConversation(id, limit),
+    startChat: ({ id, message, images, model }) => startOpenAIChatRun({ id, message, images, model }),
+    forget: (id) => (openaiUnpin(id) ? { note: 'kept — use delete to remove it for good' } : null),
+    delete: (id) => openaiDelete(id),
+    testKey: (key) => testOpenAIKey(key),
+    usageEntries: () => openaiUsageEntries(),
+    chatFiles: () => openaiChatFiles(),
+  },
+};
+
+// Which registered API-key provider owns this id, or null if it's (presumably) a Claude session.
+function apiProviderFor(id) {
+  if (!id) return null;
+  for (const [key, p] of Object.entries(API_PROVIDERS)) if (p.has(id)) return key;
+  return null;
+}
+
 function providersPayload() {
-  return {
+  const out = {
     claude: {
       label: 'Claude Code', kind: 'cli', configured: true,
-      canResumeInTerminal: true, hasFolder: true, hasStance: true, models: null, efforts: null,
-    },
-    openai: {
-      label: 'ChatGPT', kind: 'api-key', configured: !!getOpenAIKey(),
-      canResumeInTerminal: false, hasFolder: false, hasStance: false,
-      models: OPENAI_MODELS, efforts: [],
+      canResumeInTerminal: true, hasFolder: true, hasStance: true, hasImages: true, deletable: false,
+      models: null, efforts: null,
     },
   };
+  for (const [id, p] of Object.entries(API_PROVIDERS)) {
+    out[id] = {
+      label: p.label, kind: 'api-key', configured: p.configured(),
+      canResumeInTerminal: false, hasFolder: false, hasStance: false, hasImages: !!p.hasImages, deletable: true,
+      models: p.models, efforts: p.efforts,
+    };
+  }
+  return out;
 }
 
 /* ------------------------------------------------- your layer of the app
@@ -1380,13 +1427,46 @@ function searchTranscripts(needle, { limit = 40, perFile = 3 } = {}) {
       if (at < 0) continue;                  // the match was in metadata, not in what was said
       found++;
       hits.push({
-        id, project, title, role: row.type, ts: row.timestamp || null,
+        id, project, title, role: row.type, ts: row.timestamp || null, provider: 'claude',
         before: body.slice(Math.max(0, at - 90), at),
         match: body.slice(at, at + q.length),
         after: body.slice(at + q.length, at + q.length + 130),
       });
     }
   }
+
+  // Every API-key provider's chats too - a ChatGPT conversation deserves the same "which chat did
+  // I say that in" answer a Claude one gets, and any provider added later gets this for free.
+  for (const [providerId, p] of Object.entries(API_PROVIDERS)) {
+    if (!p.chatFiles) continue;
+    for (const { id, file } of p.chatFiles()) {
+      if (hits.length >= limit) break;
+      scanned++;
+      let text = '';
+      try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+      if (!text.toLowerCase().includes(lower)) continue;
+      let chat;
+      try { chat = JSON.parse(text); } catch { continue; }
+      files++;
+      const title = chat.title || 'New chat';
+      let found = 0;
+      for (const m of Array.isArray(chat.messages) ? chat.messages : []) {
+        if (found >= perFile || hits.length >= limit) break;
+        if (m.role !== 'user' && m.role !== 'assistant') continue;
+        const body = String(m.text || '');
+        const at = body.toLowerCase().indexOf(lower);
+        if (at < 0) continue;
+        found++;
+        hits.push({
+          id, project: chat.project || p.label, title, role: m.role, ts: m.ts || null, provider: providerId,
+          before: body.slice(Math.max(0, at - 90), at),
+          match: body.slice(at, at + q.length),
+          after: body.slice(at + q.length, at + q.length + 130),
+        });
+      }
+    }
+  }
+
   return { query: q, hits, files, scanned, tooShort: false };
 }
 
@@ -2065,6 +2145,28 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/toolbox') return json(res, 200, toolbox());
     if (p === '/api/usage') return json(res, 200, usage());
     if (p === '/api/providers') return json(res, 200, providersPayload());
+
+    // The one other outbound network call this app ever makes, and only when you click "Check
+    // for updates" - never on a timer, never on boot. Compares tags, not real semver ordering:
+    // good enough to say "a different release exists," not precise enough to claim "newer."
+    if (p === '/api/update-check') {
+      if (!REPO_SLUG) return json(res, 200, { current: APP_VERSION, error: 'no repository configured' });
+      try {
+        const r = await fetch(`https://api.github.com/repos/${REPO_SLUG}/releases/latest`, {
+          headers: { 'user-agent': 'ralias-cockpit', accept: 'application/vnd.github+json' },
+        });
+        if (r.status === 404) return json(res, 200, { current: APP_VERSION, latest: null, upToDate: true });
+        if (!r.ok) return json(res, 200, { current: APP_VERSION, error: `GitHub returned ${r.status}` });
+        const data = await r.json();
+        const latest = String(data.tag_name || '').replace(/^v/, '');
+        return json(res, 200, {
+          current: APP_VERSION, latest, upToDate: !latest || latest === APP_VERSION,
+          url: data.html_url || `https://github.com/${REPO_SLUG}/releases`,
+        });
+      } catch (e) {
+        return json(res, 200, { current: APP_VERSION, error: 'could not reach GitHub: ' + String(e.message || e) });
+      }
+    }
     // Method-guarded: this path also takes a POST, and the read would otherwise swallow it.
     if (p === '/api/prefs' && req.method === 'GET') return json(res, 200, prefs);
     if (p === '/api/provider-keys' && req.method === 'GET') return json(res, 200, providerKeysPublic());
@@ -2183,15 +2285,15 @@ const server = http.createServer(async (req, res) => {
         // An existing id's provider is resolved from the server's own local index, never trusted
         // from the client - so a stale or malicious `provider` can't redirect an existing
         // session's resume into the wrong path. Only a brand-new chat's `provider` is honoured.
-        const provider = id ? (openaiHas(id) ? 'openai' : 'claude') : (body.provider === 'openai' ? 'openai' : 'claude');
-        const info = provider === 'openai'
-          ? startOpenAIChatRun({ id, message: body.message, images: body.images, model: body.model })
+        const provider = id ? apiProviderFor(id) : (API_PROVIDERS[body.provider] ? body.provider : null);
+        const info = provider
+          ? API_PROVIDERS[provider].startChat({ id, message: body.message, images: body.images, model: body.model })
           : startChat({
               id, cwd: String(body.cwd || ''), message: body.message, images: body.images,
               model: body.model, effort: body.effort, stance: body.stance,
               fromThisPc: fromThisMachine(req),
             });
-        return json(res, 200, { ok: true, provider, ...info });
+        return json(res, 200, { ok: true, provider: provider || 'claude', ...info });
       }
 
       // "I am done with this chat" - drops it out of the queue until the session moves again.
@@ -2246,7 +2348,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/provider-keys') {
         const provider = String(body.provider || '');
-        if (providersPayload()[provider]?.kind !== 'api-key') return json(res, 400, { error: 'unknown provider' });
+        if (!API_PROVIDERS[provider]) return json(res, 400, { error: 'unknown provider' });
         const { backup } = saveProviderKey(provider, body.key);
         return json(res, 200, { ok: true, provider, backup });
       }
@@ -2257,10 +2359,11 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/api/provider-keys/test') {
         const provider = String(body.provider || '');
-        if (providersPayload()[provider]?.kind !== 'api-key') return json(res, 400, { error: 'unknown provider' });
+        const def = API_PROVIDERS[provider];
+        if (!def?.testKey) return json(res, 400, { error: 'unknown provider' });
         // Tests whatever was just typed, not necessarily the saved key - so "Test" works before "Save".
-        const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : getOpenAIKey();
-        const result = await testOpenAIKey(key);
+        const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : getProviderKey(provider);
+        const result = await def.testKey(key);
         return json(res, 200, result);
       }
 
@@ -2285,21 +2388,23 @@ const server = http.createServer(async (req, res) => {
           try { fs.writeFileSync(CHATS_FILE, JSON.stringify({ chats: [...inPageChats.values()] }, null, 2), 'utf8'); } catch {}
           return json(res, 200, { ok: true, id, note: 'the transcript itself is untouched' });
         }
-        // For OpenAI the local file *is* the only copy, so "forget" here only unpins it from the
-        // board too - the file survives until /api/chat/delete removes it for good.
-        if (openaiHas(id) && openaiUnpin(id)) {
-          return json(res, 200, { ok: true, id, note: 'kept — use delete to remove it for good' });
-        }
+        // For an API-key provider the local file *is* the only copy, so "forget" here only
+        // unpins it from the board too - the file survives until /api/chat/delete removes it.
+        const provider = apiProviderFor(id);
+        const result = provider && API_PROVIDERS[provider].forget(id);
+        if (result) return json(res, 200, { ok: true, id, ...result });
         return json(res, 404, { error: 'not a chat this app started' });
       }
 
-      // OpenAI-only: unlike Claude's forget, this actually removes the local copy - it's the
-      // only one that ever existed.
+      // Unlike Claude's forget, this actually removes the local copy - for an API-key provider
+      // it's the only one that ever existed. Never reaches a Claude session: no provider's
+      // has(id) matches one, so provider stays null and this 404s before touching anything.
       if (p === '/api/chat/delete') {
         const id = String(body.id || '');
         if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) return json(res, 400, { error: 'bad id' });
-        if (!openaiHas(id)) return json(res, 404, { error: 'no such chat' });
-        openaiDelete(id);
+        const provider = apiProviderFor(id);
+        if (!provider) return json(res, 404, { error: 'no such chat' });
+        API_PROVIDERS[provider].delete(id);
         return json(res, 200, { ok: true, id });
       }
 

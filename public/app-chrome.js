@@ -38,6 +38,16 @@ $('#undismiss').addEventListener('click', () => {
   render();
 });
 
+// One-click cleanup for finished sessions - reversible from the undismiss button above, so this
+// is safe to point at everything in the section rather than just what's on screen for one filter.
+$('#dismiss-done').addEventListener('click', () => {
+  const done = sessions.filter((s) => inSection(s, activeSection()) && !isDismissed(s) && s.status === 'done');
+  for (const s of done) dismissed[s.id] = s.lastActivity;
+  store.set('dismissed', dismissed);
+  toast(`Dismissed ${done.length}`, done.map((s) => s.title).join(', '), 'good');
+  render();
+});
+
 /* Alerts, theme and phone pairing used to be three more icons in an already-full top bar. They
    are one "more" menu now: the top bar is where you are and what you are doing, this is settings. */
 
@@ -85,6 +95,29 @@ function providerKeyRows() {
     }));
 }
 
+// The only network call in this app besides an OpenAI-provider turn, and it only ever happens
+// here - on a click, never on a timer or on boot.
+async function checkForUpdates() {
+  closePopover();
+  let data;
+  try {
+    data = await fetch('/api/update-check').then((r) => r.json());
+  } catch (e) {
+    toast('Could not check for updates', e.message, 'bad');
+    return;
+  }
+  if (data.error) { toast('Could not check for updates', data.error, 'bad'); return; }
+  if (data.upToDate) { toast('You’re up to date', `v${data.current}`, 'good'); return; }
+  const el = h('div', 'toast good', `v${data.latest} is out`);
+  el.append(h('small', '', `you're on v${data.current}${data.url ? ' — click to see what changed' : ''}`));
+  if (data.url) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => { window.open(data.url, '_blank'); el.remove(); });
+  }
+  $('#toasts').append(el);
+  setTimeout(() => el.remove(), 15000);
+}
+
 $('#btn-more').addEventListener('click', (e) => {
   e.stopPropagation();
   if (popover) { closePopover(); return; }
@@ -94,6 +127,7 @@ $('#btn-more').addEventListener('click', (e) => {
     rows: [
       { label: 'Desktop alerts', tick: notify, pick: () => { closePopover(); toggleAlerts(); } },
       { label: dark ? 'Switch to light' : 'Switch to dark', pick: () => { closePopover(); setTheme(dark ? 'light' : 'dark'); } },
+      { label: 'Check for updates', pick: checkForUpdates },
       phoneRow(),
       ...providerKeyRows(),
     ],
