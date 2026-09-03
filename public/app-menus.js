@@ -206,10 +206,12 @@ function render() {
   $('#empty').textContent = query
     ? `Nothing matches “${query}”.`
     : section ? `“${section.name}” is empty. Switch to everything, then use the sections link on a card to add it here.`
+    // A genuinely fresh install: nothing under ~/.claude at all, regardless of which filter tab
+    // happens to be active. A new user lands on the default "Live" tab, where this would
+    // otherwise be masked by "No live sessions" - which reads like a stall, not an empty install.
+    : !sessions.length ? 'Nothing here yet. Click “+ New chat” above to start one, or open a terminal and run claude.'
     : filter === 'needs' ? 'Nobody is waiting on you. ✨'
     : filter === 'live' ? 'No Claude Code sessions are running right now.'
-    // A genuinely fresh install: nothing under ~/.claude at all, not just filtered down to zero.
-    : !sessions.length ? 'Nothing here yet. Click “+ New chat” above to start one, or open a terminal and run claude.'
     : 'No sessions found under ~/.claude.';
 }
 

@@ -233,7 +233,8 @@ window.FLEET_LOOPBACK = __FLEET_LOOPBACK__;
     </label>
     <label class="field newchat-only" id="new-folder-field" hidden>
       <span>Folder for the new chat</span>
-      <select id="new-folder"></select>
+      <input id="new-folder" list="new-folder-list" placeholder="C:\path\to\a\project" autocomplete="off" spellcheck="false">
+      <datalist id="new-folder-list"></datalist>
     </label>
     <div class="shots" id="drawer-shots" hidden></div>
     <p class="run-status" id="run-status" hidden></p>

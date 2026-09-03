@@ -89,15 +89,20 @@ function folderOptions() {
   const seen = new Map();
   for (const s of sessions) if (s.cwd) seen.set(s.cwd.toLowerCase(), s.cwd);
   for (const p of toolboxData?.projects || []) if (p.dir) seen.set(p.dir.toLowerCase(), p.dir);
-  const select = $('#new-folder');
-  const chosen = select.value;
-  select.replaceChildren();
+  // A <datalist>, not a <select>: known folders still autocomplete, but there's always a way to
+  // type one that isn't known yet - a brand new install with no session or project history yet
+  // would otherwise leave this with nothing to pick and no way to start a first chat at all.
+  const list = $('#new-folder-list');
+  const field = $('#new-folder');
+  const chosen = field.value;
+  list.replaceChildren();
   for (const dir of [...seen.values()].sort((a, b) => a.localeCompare(b))) {
-    const o = h('option', '', `${dir.split(/[\\/]/).filter(Boolean).pop()}  —  ${dir}`);
+    const o = document.createElement('option');
     o.value = dir;
-    select.append(o);
+    o.label = dir.split(/[\\/]/).filter(Boolean).pop() || dir;
+    list.append(o);
   }
-  if (chosen) select.value = chosen;
+  if (chosen) field.value = chosen;
 }
 
 function setRunStatus(text, kind) {

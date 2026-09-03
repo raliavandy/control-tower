@@ -372,7 +372,10 @@ function invSection(name, note, rows, opts = {}) {
   chev.setAttribute('class', 'chev'); chev.setAttribute('viewBox', '0 0 24 24');
   const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   pathEl.setAttribute('d', 'M9 6l6 6-6 6'); chev.append(pathEl);
-  head.append(chev, h('span', 'group-name', name), h('span', 'count group-count', String(rows.length)));
+  // `rows` is DOM nodes, not data - a caller rendering a single "nothing here yet" placeholder,
+  // or one summary card standing in for many rules, would otherwise show a misleading count of 1.
+  const count = opts.count ?? rows.length;
+  head.append(chev, h('span', 'group-name', name), h('span', 'count group-count', String(count)));
   if (note) head.append(h('span', 'group-note', note));
   head.addEventListener('click', () => { collapsed[key] = !shut; store.set('collapsed', collapsed); paintToolbox(); });
   bar.append(head);
@@ -617,7 +620,7 @@ function paintRules() {
         } catch (err) { toast('Could not remove it', err.message, 'bad'); }
       },
     })) : [h('p', 'inv-empty', 'No hooks configured. A hook makes something happen every time — a formatter after each edit, a notification when a session stops.')],
-    { add: hookHome ? { label: 'new hook', onClick: () => openHookEditor(null, hookHome) } : null }));
+    { count: hooks.length, add: hookHome ? { label: 'new hook', onClick: () => openHookEditor(null, hookHome) } : null }));
 
   // 88 permission rules deserve a compact list, not 88 cards.
   const byOwner = new Map();
@@ -675,7 +678,7 @@ function paintRules() {
     open.addEventListener('click', () => act('/api/open', { target: 'file', file }, 'Opening…'));
     tools.append(open);
     card.append(tools);
-    parts.push(invSection(`permissions · ${owner}`, `${items.length} rules you have already approved`, [card], { shutByDefault: true }));
+    parts.push(invSection(`permissions · ${owner}`, `${items.length} rules you have already approved`, [card], { count: items.length, shutByDefault: true }));
   }
 
   if (!parts.length) wrap.append(h('p', 'empty', q ? `Nothing matches “${query}”.` : 'No rules found.'));
