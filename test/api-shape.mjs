@@ -40,7 +40,7 @@ await describe('search', async () => {
   ok(typeof hits.scanned === 'number' && hits.scanned > 0, 'it reports how many transcripts it read');
   ok(Array.isArray(hits.hits), 'hits is an array');
   if (hits.hits[0]) {
-    for (const key of ['id', 'project', 'role', 'before', 'match', 'after']) {
+    for (const key of ['id', 'project', 'role', 'before', 'match', 'after', 'provider']) {
       ok(key in hits.hits[0], `a hit carries ${key}`);
     }
     ok(hits.hits[0].match.toLowerCase() === 'the', 'the matched text is the needle itself');
@@ -103,6 +103,15 @@ await describe('providers', async () => {
   }
   ok(Array.isArray(p.openai.models) && p.openai.models.length > 0, 'openai comes with a curated model list');
   ok(p.openai.canResumeInTerminal === false, 'there is no terminal to resume an API-only chat in');
+});
+
+await describe('update-check', async () => {
+  // The one route that talks to the real network - tolerant of it being unreachable or
+  // rate-limited (that's `error` set, not a thrown exception), since a CI runner's GitHub
+  // access is outside this app's control either way.
+  const u = await getJson('/api/update-check');
+  ok(typeof u.current === 'string' && u.current.length > 0, 'always reports the running version');
+  ok('upToDate' in u || 'error' in u, 'either resolves an answer or says why it could not');
 });
 
 await describe('trash', async () => {

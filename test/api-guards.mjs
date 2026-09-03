@@ -122,6 +122,67 @@ await describe('write guards — provider keys are never echoed back', async () 
   ok(removed.status === 200, 'and it cleans up after itself');
 });
 
+await describe('write guards — a chat id must look like one', async () => {
+  // /api/chat/delete and /api/chat/forget used to skip the shape check every other id-bearing
+  // route applies, so a traversal in `id` could reach a file outside openai-chats/.
+  const traversal = await post('/api/chat/delete', { id: '../../server' });
+  ok(traversal.status === 400, 'a traversal-shaped id is refused before it is ever used as a path', `got ${traversal.status}`);
+
+  const traversal2 = await post('/api/chat/forget', { id: '../../server' });
+  ok(traversal2.status === 400, 'same for forget', `got ${traversal2.status}`);
+
+  const wellFormed = await post('/api/chat/delete', { id: '00000000-0000-0000-0000-000000000000' });
+  ok(wellFormed.status === 404, 'a well-formed but unknown id is a plain 404, not an error', `got ${wellFormed.status}`);
+});
+
+await describe('write guards — prefs embedded into the page cannot break out of the script tag', async () => {
+  // JSON.stringify does not escape </script>, so a saved pref containing it used to be able to
+  // close the inline <script> tag index.html embeds prefs into and inject markup after it.
+  const before = await getJson('/api/prefs');
+  const payload = '</script><script>window.__pwned = 1</script>';
+  await post('/api/prefs', { patch: { filter: payload } });
+
+  const page = await get('/');
+  ok(!page.body.includes(payload), 'the raw payload never appears unescaped in the served page');
+  ok(!page.body.includes('<script>window.__pwned'), 'the payload\'s own opening tag never reaches the page unescaped');
+  ok(page.body.includes('\\u003cscript>window.__pwned'), 'it is escaped instead, so the parser never sees it as markup');
+
+  await post('/api/prefs', { patch: { filter: before.filter ?? null } });
+});
+
+await describe('write guards — hook removal is scoped to its own matcher', async () => {
+  // editHook()'s remove path used to match on (event, command) only, so removing/editing one
+  // hook could silently delete a different hook that happened to share command text.
+  const file = path.join((await getJson('/api/toolbox')).dirs.claude, 'settings.json');
+  const event = 'PreToolUse';
+  const command = 'echo test-guard-hook';
+
+  await post('/api/hook', { action: 'add', file, event, matcher: 'Bash', command });
+  await post('/api/hook', { action: 'add', file, event, matcher: 'Edit', command });
+
+  const before = (await getJson('/api/toolbox')).rules.hooks
+    .filter((h) => h.event === event && h.command === command);
+  eq(before.length, 2, 'both hooks under different matchers were added');
+
+  await post('/api/hook', { action: 'remove', file, event, matcher: 'Bash', command });
+
+  const after = (await getJson('/api/toolbox')).rules.hooks
+    .filter((h) => h.event === event && h.command === command);
+  eq(after.map((h) => h.matcher).sort(), ['Edit'], 'only the matching matcher was removed, the other survives');
+
+  await post('/api/hook', { action: 'remove', file, event, matcher: 'Edit', command });
+  const clean = (await getJson('/api/toolbox')).rules.hooks.filter((h) => h.event === event && h.command === command);
+  eq(clean.length, 0, 'cleaned up after itself');
+});
+
+await describe('write guards — provider-keys routes reject an unregistered provider', async () => {
+  const saved = await post('/api/provider-keys', { provider: 'not-a-real-provider', key: 'x' });
+  ok(saved.status === 400, 'saving a key for an unknown provider is refused', `got ${saved.status}`);
+
+  const tested = await post('/api/provider-keys/test', { provider: 'not-a-real-provider' });
+  ok(tested.status === 400, 'testing an unknown provider is refused', `got ${tested.status}`);
+});
+
 await describe('round trip — an argument containing a space survives', async () => {
   const name = 'test-spaced-args';
   const args = ['/c', 'echo', 'hello world', '--flag=a b'];
