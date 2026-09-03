@@ -287,7 +287,7 @@ async function saveEditor() {
       toast('Saved', editing.file, 'good');
     } else if (editing.mode === 'hook') {
       const prev = editing.original;
-      if (prev) await post('/api/hook', { action: 'remove', file: prev.file, event: prev.event, command: prev.command });
+      if (prev) await post('/api/hook', { action: 'remove', file: prev.file, event: prev.event, matcher: prev.matcher, command: prev.command });
       await post('/api/hook', {
         action: 'add', file: editing.file,
         event: $('#ed-hook-event').value,
@@ -611,7 +611,7 @@ function paintRules() {
       remove: async () => {
         if (!confirm(`Remove this ${x.event} hook?\n\n${x.command}`)) return;
         try {
-          await post('/api/hook', { action: 'remove', file: x.file, event: x.event, command: x.command });
+          await post('/api/hook', { action: 'remove', file: x.file, event: x.event, matcher: x.matcher, command: x.command });
           toast('Hook removed', x.event, 'good');
           toolboxCacheBust();
         } catch (err) { toast('Could not remove it', err.message, 'bad'); }

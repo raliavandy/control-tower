@@ -45,16 +45,21 @@ function reattachLive() {
 }
 
 async function loadTranscript() {
+  // Opening a second chat before this fetch resolves must not let a slower, stale response for
+  // the first one overwrite what's now on screen for the second.
+  const forId = drawerId;
   try {
-    const res = await fetch(`/api/transcript?id=${encodeURIComponent(drawerId)}&limit=${drawerLimit}`);
+    const res = await fetch(`/api/transcript?id=${encodeURIComponent(forId)}&limit=${drawerLimit}`);
     const convo = await res.json();
     if (convo.error) throw new Error(convo.error);
+    if (drawerId !== forId) return;
     drawerConvo = convo;
     paintDrawer();
   } catch (e) {
+    if (drawerId !== forId) return;
     drawerConvo = null;
     // A brand new chat has no transcript until its first turn lands - that is not an error.
-    const firstTurn = !!runFor(drawerId);
+    const firstTurn = !!runFor(forId);
     $('#drawer-body').replaceChildren(h('p', 'drawer-hint',
       firstTurn ? 'Still on its first answer — the saved transcript appears once this turn finishes.'
         : 'Could not read the transcript: ' + e.message));

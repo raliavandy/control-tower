@@ -14,6 +14,7 @@ import {
   configureOpenAI, openaiHas, openaiSessions, openaiReadConversation, openaiDelete, openaiUnpin,
   runOpenAIChat, testOpenAIKey, OPENAI_MODELS, openaiUsageEntries,
 } from './server/providers/openai.mjs';
+import { clip, localDay } from './server/lib/util.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -57,8 +58,6 @@ const stallMs = (toolName) => {
 };
 
 // ---------------------------------------------------------------- small helpers
-
-const clip = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) + '…' : s || '');
 
 function readSlice(file, start, length) {
   const fd = fs.openSync(file, 'r');
@@ -161,7 +160,7 @@ function digestTranscript(file, stat) {
   const d = {
     title: null, lastPrompt: null, model: null, effort: null, permissionMode: null,
     version: null, gitBranch: null, cwd: null, entrypoint: null, promptSource: null,
-    lastActivity: 0, lastRole: null, lastText: '', promptCount: 0, turnCount: 0,
+    lastActivity: 0, lastRole: null, lastRoleIsToolResult: false, lastText: '', promptCount: 0, turnCount: 0,
     pendingTool: null, subagentsRunning: 0, queued: 0, tokens: null, windowTruncated: rows.length < 4,
     mcpUsed: {}, skillsUsed: {},
   };
@@ -222,6 +221,7 @@ function digestTranscript(file, stat) {
 
   if (lastMain) {
     d.lastRole = lastMain.type;
+    d.lastRoleIsToolResult = lastMain.type === 'user' && isToolResultOnly(lastMain.message?.content);
     d.lastText = clip(textOf(lastMain.message?.content).trim(), 600);
     if (!d.lastActivity && lastMain.timestamp) d.lastActivity = Date.parse(lastMain.timestamp);
   }
@@ -343,7 +343,12 @@ function statusOf(d, alive, lastActivity, now) {
     if (NO_PROMPT_MODES.has(d.permissionMode)) return 'long';
     return 'blocked';
   }
-  if (d.lastRole === 'user') return silent > 90_000 ? 'waiting-for-you' : 'working';
+  if (d.lastRole === 'user') {
+    // A tool result lands as a user-role row too. If that's the last thing in the transcript,
+    // Claude is still generating its next turn - not waiting on a reply that was never asked for.
+    if (d.lastRoleIsToolResult) return 'working';
+    return silent > 90_000 ? 'waiting-for-you' : 'working';
+  }
   if (silent > IDLE_AFTER_MS) return 'idle';
   return silent > HANDBACK_MS ? 'done' : 'waiting-for-you';
 }
@@ -618,12 +623,6 @@ const usageCache = new Map(); // file -> { mtimeMs, size, entries: Map }
 // than triggering a 100 MB scan of its own on the very first paint.
 let perSession = new Map();
 
-function localDay(ts) {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return 'unknown';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function usageEntries(file, stat) {
   const hit = usageCache.get(file);
   if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.entries;
@@ -679,7 +678,7 @@ function bump(map, key, e) {
 function buildUsage() {
   const bySlug = dirsBySlug();
   const days = new Map(), models = new Map(), projects = new Map(), sessions = new Map();
-  const totals = zero();
+  const totalsMap = new Map();
   const counted = new Set();
   let subagentRequests = 0;
   let duplicatesSkipped = 0;
@@ -706,12 +705,7 @@ function buildUsage() {
         bump(models, e.model, e);
         bump(projects, project, e);
         bump(sessions, sessionId, e);
-        totals.requests++;
-        totals.input += e.input;
-        totals.output += e.output;
-        totals.cacheRead += e.cacheRead;
-        totals.cacheCreate += e.cacheCreate;
-        totals.cost += e.cost || 0;
+        bump(totalsMap, 'all', e);
         if (e.sidechain) subagentRequests++;
       }
     }
@@ -726,12 +720,7 @@ function buildUsage() {
     bump(models, e.model, e);
     bump(projects, e.project, e);
     bump(sessions, e.sessionId, e);
-    totals.requests++;
-    totals.input += e.input;
-    totals.output += e.output;
-    totals.cacheRead += e.cacheRead;
-    totals.cacheCreate += e.cacheCreate;
-    totals.cost += e.cost || 0;
+    bump(totalsMap, 'all', e);
   }
 
   const rows = (map, key) => [...map].map(([k, v]) => ({ [key]: k, ...v }));
@@ -740,7 +729,7 @@ function buildUsage() {
   return {
     generatedAt: Date.now(),
     today: localDay(Date.now()),
-    totals,
+    totals: totalsMap.get('all') || zero(),
     subagentRequests,
     duplicatesSkipped,
     days: rows(days, 'date').filter((d) => d.date !== 'unknown').sort((a, b) => a.date.localeCompare(b.date)),
@@ -835,9 +824,9 @@ function projectEntries() {
 // Slugifying the known project dirs the same way recovers the real path - and its real name.
 const slugOf = (dir) => dir.replace(/[\\/:.]/g, '-').toLowerCase();
 
-function dirsBySlug() {
+function dirsBySlug(entries = projectEntries()) {
   const map = new Map();
-  for (const { dir } of projectEntries()) map.set(slugOf(dir), dir);
+  for (const { dir } of entries) map.set(slugOf(dir), dir);
   return map;
 }
 
@@ -869,7 +858,7 @@ function mcpTarget(def) {
   };
 }
 
-function mcpInventory() {
+function mcpInventory(entries = projectEntries()) {
   const cfg = readJson(CLAUDE_JSON) || {};
   const auth = readJson(MCP_AUTH_CACHE) || {};
   const unauthed = new Set(Object.keys(auth).map(idKey));
@@ -902,7 +891,7 @@ function mcpInventory() {
 
   for (const [name, def] of Object.entries(cfg.mcpServers || {})) add(name, 'user', def);
 
-  for (const { dir, cfg: pcfg } of projectEntries()) {
+  for (const { dir, cfg: pcfg } of entries) {
     const label = leaf(dir);
     for (const [name, def] of Object.entries(pcfg.mcpServers || {})) {
       const row = add(name, 'local', def);
@@ -943,7 +932,7 @@ function mcpInventory() {
   return [...rows.values()];
 }
 
-function skillRows() {
+function skillRows(entries = projectEntries()) {
   const rows = [];
   const push = (file, scope, source) => {
     const fm = frontmatter(file);
@@ -954,7 +943,7 @@ function skillRows() {
     });
   };
   for (const f of findFiles(path.join(CLAUDE_DIR, 'skills'), /^SKILL\.md$/i, 3)) push(f, 'user', 'personal');
-  for (const { dir } of projectEntries()) {
+  for (const { dir } of entries) {
     for (const f of findFiles(path.join(dir, '.claude', 'skills'), /^SKILL\.md$/i, 3)) push(f, 'project', leaf(dir));
   }
   for (const p of pluginDirs()) {
@@ -963,7 +952,7 @@ function skillRows() {
   return rows;
 }
 
-function mdRows(sub) {
+function mdRows(sub, entries = projectEntries()) {
   const rows = [];
   const push = (file, scope, source) => {
     const fm = frontmatter(file);
@@ -975,7 +964,7 @@ function mdRows(sub) {
     });
   };
   for (const f of findFiles(path.join(CLAUDE_DIR, sub), /\.md$/i, 3)) push(f, 'user', 'personal');
-  for (const { dir } of projectEntries()) {
+  for (const { dir } of entries) {
     for (const f of findFiles(path.join(dir, '.claude', sub), /\.md$/i, 3)) push(f, 'project', leaf(dir));
   }
   for (const p of pluginDirs()) {
@@ -994,9 +983,8 @@ function head(file, bytes = 6144) {
 }
 
 // ~/.claude/projects/<slug>/memory/*.md - the auto-memory, plus its MEMORY.md index.
-function memoryRows() {
+function memoryRows(bySlug = dirsBySlug()) {
   const rows = [];
-  const bySlug = dirsBySlug();
   let slugs = [];
   try { slugs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true }); } catch { return rows; }
   for (const slug of slugs) {
@@ -1028,7 +1016,7 @@ function memoryRows() {
 
 // The home directory is itself a "project" in ~/.claude.json, so a naive scan finds every repo's
 // CLAUDE.md twice. Keyed by path, and the deepest owning project wins.
-function claudeMdRows() {
+function claudeMdRows(entries = projectEntries()) {
   const rows = new Map();
   const add = (file, scope, source, ownerLen) => {
     let stat; try { stat = fs.statSync(file); } catch { return; }
@@ -1046,14 +1034,14 @@ function claudeMdRows() {
   };
   const userMd = path.join(CLAUDE_DIR, 'CLAUDE.md');
   if (fs.existsSync(userMd)) add(userMd, 'user', 'personal', Infinity);
-  for (const { dir } of projectEntries()) {
+  for (const { dir } of entries) {
     for (const f of findFiles(dir, /^CLAUDE(\.local)?\.md$/i, 3)) add(f, 'project', leaf(dir), dir.length);
   }
   return [...rows.values()].map(({ ownerLen, ...row }) => row);
 }
 
 // Same trap: <home>/.claude/settings.json IS ~/.claude/settings.json, so dedupe by path.
-function settingsSources() {
+function settingsSources(entries = projectEntries()) {
   const seen = new Map();
   const add = (file, scope, source) => {
     const key = path.normalize(file).toLowerCase();
@@ -1061,16 +1049,16 @@ function settingsSources() {
   };
   add(path.join(CLAUDE_DIR, 'settings.json'), 'user', 'personal');
   add(path.join(CLAUDE_DIR, 'settings.local.json'), 'user', 'personal (local)');
-  for (const { dir } of projectEntries()) {
+  for (const { dir } of entries) {
     add(path.join(dir, '.claude', 'settings.json'), 'project', leaf(dir));
     add(path.join(dir, '.claude', 'settings.local.json'), 'project', leaf(dir) + ' (local)');
   }
   return [...seen.values()];
 }
 
-function hookRows() {
+function hookRows(sources = settingsSources()) {
   const rows = [];
-  for (const { file, scope, source } of settingsSources()) {
+  for (const { file, scope, source } of sources) {
     const cfg = readJson(file);
     for (const [event, matchers] of Object.entries(cfg?.hooks || {})) {
       for (const m of Array.isArray(matchers) ? matchers : []) {
@@ -1086,9 +1074,9 @@ function hookRows() {
   return rows;
 }
 
-function permissionRows() {
+function permissionRows(entries = projectEntries(), sources = settingsSources(entries)) {
   const rows = [];
-  for (const { file, scope, source } of settingsSources()) {
+  for (const { file, scope, source } of sources) {
     const perms = readJson(file)?.permissions;
     if (!perms) continue;
     for (const kind of ['allow', 'ask', 'deny']) {
@@ -1096,7 +1084,7 @@ function permissionRows() {
     }
   }
   // Older allow-lists live on the project record in ~/.claude.json instead.
-  for (const { dir, cfg } of projectEntries()) {
+  for (const { dir, cfg } of entries) {
     for (const rule of cfg.allowedTools || []) {
       rows.push({ kind: 'allow', rule: clip(String(rule), 220), scope: 'project', source: leaf(dir), file: CLAUDE_JSON });
     }
@@ -1111,21 +1099,25 @@ function toolbox() {
   if (toolboxCache.data && now - toolboxCache.at < TOOLBOX_TTL) return toolboxCache.data;
   const cfg = readJson(CLAUDE_JSON) || {};
   const settings = readJson(path.join(CLAUDE_DIR, 'settings.json')) || {};
+  // Computed once and threaded through below - every helper here otherwise re-reads and
+  // re-parses ~/.claude.json on its own, which adds up across a dozen calls per rebuild.
+  const entries = projectEntries();
+  const sources = settingsSources(entries);
   const data = {
     generatedAt: now,
-    mcp: mcpInventory(),
-    skills: skillRows(),
-    agents: mdRows('agents'),
-    commands: mdRows('commands'),
+    mcp: mcpInventory(entries),
+    skills: skillRows(entries),
+    agents: mdRows('agents', entries),
+    commands: mdRows('commands', entries),
     skillUsage: cfg.skillUsage || {},
     settings,
     rules: {
-      memory: memoryRows(),
-      claudeMd: claudeMdRows(),
-      hooks: hookRows(),
-      permissions: permissionRows(),
+      memory: memoryRows(dirsBySlug(entries)),
+      claudeMd: claudeMdRows(entries),
+      hooks: hookRows(sources),
+      permissions: permissionRows(entries, sources),
     },
-    projects: projectEntries().map(({ dir, cfg: pcfg }) => {
+    projects: entries.map(({ dir, cfg: pcfg }) => {
       const local = readJson(path.join(dir, '.claude', 'settings.local.json')) || {};
       return {
         name: leaf(dir),
@@ -1473,6 +1465,11 @@ function pruneTrash() {
   } catch { return 0; }
 }
 
+// Pruning re-lists and re-stats the whole trash directory, so it isn't worth doing on every
+// single backup - TRASH_KEEP is a soft cap anyway, and a few extra files between prunes is fine.
+const PRUNE_EVERY = 20;
+let writesSincePrune = 0;
+
 function toTrash(file) {
   try {
     if (!fs.existsSync(file)) return null;
@@ -1480,7 +1477,7 @@ function toTrash(file) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const dest = path.join(TRASH_DIR, `${stamp}__${leaf(file)}`);
     fs.copyFileSync(file, dest);
-    pruneTrash();
+    if (++writesSincePrune >= PRUNE_EVERY) { writesSincePrune = 0; pruneTrash(); }
     return dest;
   } catch (e) {
     throw new Error('could not back that file up, so nothing was changed: ' + e.message);
@@ -1541,7 +1538,11 @@ function editHook({ action, file, event, matcher, command }) {
     else list.push({ matcher: match, hooks: [{ type: 'command', command: cmd }] });
     json.hooks[ev] = list;
   } else {
-    for (const slot of list) slot.hooks = (slot.hooks || []).filter((h) => h.command !== cmd);
+    const match = String(matcher || '').trim() || '*';
+    for (const slot of list) {
+      if ((slot.matcher || '*') !== match) continue;
+      slot.hooks = (slot.hooks || []).filter((h) => h.command !== cmd);
+    }
     json.hooks[ev] = list.filter((slot) => (slot.hooks || []).length);
     if (!json.hooks[ev].length) delete json.hooks[ev];
   }
@@ -1803,12 +1804,11 @@ function startChat({ id, cwd, message, images, model, effort, stance, fromThisPc
   rememberChat(sessionId, cwd);   // so the card survives closing the panel
   sweepRuns();
 
-  // A PATH shim (npm global install) needs cmd.exe to resolve; a resolved exe path doesn't.
-  const child = CLAUDE_BIN && CLAUDE_BIN.toLowerCase().endsWith('.exe')
-    ? spawn(CLAUDE_BIN, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    : spawn('cmd.exe', ['/c', CLAUDE_BIN || 'claude', ...args], {
-        cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-      });
+  // A PATH shim (npm global install) is a .cmd file, which Node can only run through cmd.exe -
+  // but spawning it AS the target program (not by hand-building a `cmd.exe /c <command line>`
+  // string) gets Node's own safe argument escaping for batch files, so `&`/`|`/`^` in the prompt
+  // can never be re-parsed as a second command the way they could through a manual cmd.exe shell-out.
+  const child = spawn(CLAUDE_BIN || 'claude', args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   run.child = child;
   run.stop = () => child.kill();
 
@@ -1895,32 +1895,32 @@ function startOpenAIChatRun({ id, message, images, model }) {
   return { runId, sessionId, stance: 'ChatGPT', images: 0, resumed: !!id };
 }
 
+// `code` is itself a PATH shim (code.cmd) on most installs - same reasoning as CLAUDE_BIN above,
+// spawn it directly rather than through a hand-built `cmd.exe /c` string so Node's own batch-file
+// argument escaping applies instead of cmd.exe re-parsing `&`/`|`/`^` in a client-supplied path.
+const OPENERS = {
+  code: (p) => spawn('code', [p], { detached: true, stdio: 'ignore' }),
+  transcript: (p) => spawn('code', [p], { detached: true, stdio: 'ignore' }),
+  file: (p) => spawn('code', [p], { detached: true, stdio: 'ignore' }),
+  explorer: (p) => spawn('explorer.exe', [p], { detached: true, stdio: 'ignore' }),
+};
+
 function openTarget({ target, cwd, file }) {
   const p = target === 'transcript' || target === 'file' ? file : cwd;
   if (!p) throw new Error('nothing to open');
-  if (target === 'file') {
-    const child = spawn('cmd.exe', ['/c', 'code', p], { detached: true, stdio: 'ignore' });
-    child.unref();
-    return { opened: p };
-  }
-  if (target === 'code') {
-    const child = spawn('cmd.exe', ['/c', 'code', p], { detached: true, stdio: 'ignore' });
-    child.unref();
-  } else if (target === 'explorer') {
-    const child = spawn('explorer.exe', [p], { detached: true, stdio: 'ignore' });
-    child.unref();
-  } else if (target === 'transcript') {
-    const child = spawn('cmd.exe', ['/c', 'code', p], { detached: true, stdio: 'ignore' });
-    child.unref();
-  } else {
-    throw new Error('unknown target: ' + target);
-  }
+  const opener = OPENERS[target];
+  if (!opener) throw new Error('unknown target: ' + target);
+  opener(p).unref();
   return { opened: p };
 }
 
 // ---------------------------------------------------------------- http
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+
+// JSON.stringify does not escape `</script>`, so embedding it raw into an inline <script> tag
+// lets a `<` in stored data (e.g. a saved prefs value) break out of the tag and inject markup.
+const jsonForScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 
 function json(res, code, body) {
   const buf = Buffer.from(JSON.stringify(body));
@@ -1999,6 +1999,8 @@ document.getElementById('f').addEventListener('submit', async (ev) => {
 });
 </script></body></html>`;
 
+const IMAGE_BODY_ROUTES = new Set(['/api/reply', '/api/chat', '/api/new-terminal']);
+
 function readBody(req, cap = 256 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
@@ -2012,6 +2014,7 @@ const sseClients = new Set();
 let lastPayload = '';
 
 function tick() {
+  if (!sseClients.size) return; // nobody's watching - the next /api/events connection builds fresh state itself
   let state;
   try { state = buildState(); } catch (e) { state = { error: String(e?.message || e), sessions: [], stats: {} }; }
   const body = JSON.stringify(state);
@@ -2156,8 +2159,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST') {
       if (req.headers['x-fleet-token'] !== TOKEN) return json(res, 403, { error: 'bad token' });
-      // Pasted screenshots arrive base64-inlined, so the reply route needs real headroom.
-      const body = await readBody(req, p === '/api/reply' ? 64 * 1024 * 1024 : 256 * 1024);
+      // Pasted screenshots arrive base64-inlined, and /api/reply, /api/chat and /api/new-terminal
+      // all accept them, so all three need the same headroom.
+      const body = await readBody(req, IMAGE_BODY_ROUTES.has(p) ? 64 * 1024 * 1024 : 256 * 1024);
 
       if (p === '/api/reply') {
         const id = String(body.id || '');
@@ -2242,7 +2246,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/provider-keys') {
         const provider = String(body.provider || '');
-        if (provider !== 'openai') return json(res, 400, { error: 'unknown provider' });
+        if (providersPayload()[provider]?.kind !== 'api-key') return json(res, 400, { error: 'unknown provider' });
         const { backup } = saveProviderKey(provider, body.key);
         return json(res, 200, { ok: true, provider, backup });
       }
@@ -2253,7 +2257,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/api/provider-keys/test') {
         const provider = String(body.provider || '');
-        if (provider !== 'openai') return json(res, 400, { error: 'unknown provider' });
+        if (providersPayload()[provider]?.kind !== 'api-key') return json(res, 400, { error: 'unknown provider' });
         // Tests whatever was just typed, not necessarily the saved key - so "Test" works before "Save".
         const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : getOpenAIKey();
         const result = await testOpenAIKey(key);
@@ -2274,6 +2278,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/chat/forget') {
         const id = String(body.id || '');
+        if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) return json(res, 400, { error: 'bad id' });
         // For Claude this only unpins the card - the transcript lives on independently on disk.
         if (inPageChats.has(id)) {
           inPageChats.delete(id);
@@ -2292,6 +2297,7 @@ const server = http.createServer(async (req, res) => {
       // only one that ever existed.
       if (p === '/api/chat/delete') {
         const id = String(body.id || '');
+        if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) return json(res, 400, { error: 'bad id' });
         if (!openaiHas(id)) return json(res, 404, { error: 'no such chat' });
         openaiDelete(id);
         return json(res, 200, { ok: true, id });
@@ -2320,14 +2326,14 @@ const server = http.createServer(async (req, res) => {
     if (file === 'index.html' || file === 'pair.html') {
       // Only ever handed to an already-authorised client, so the pairing URL can ride along.
       const phone = LAN
-        ? JSON.stringify({ code: ACCESS, urls: lanAddresses().map((ip) => `http://${ip}:${PORT}/?k=${ACCESS}`) })
+        ? jsonForScript({ code: ACCESS, urls: lanAddresses().map((ip) => `http://${ip}:${PORT}/?k=${ACCESS}`) })
         : 'null';
       // Injected rather than fetched: the front end reads its settings synchronously at start-up,
       // so an async round trip would paint the defaults first and then jump.
       data = Buffer.from(data.toString('utf8')
         .replace('__FLEET_TOKEN__', TOKEN)
         .replace('__FLEET_PHONE__', phone)
-        .replace('__FLEET_PREFS__', JSON.stringify(prefs))
+        .replace('__FLEET_PREFS__', jsonForScript(prefs))
         .replace('__FLEET_LOOPBACK__', String(fromThisMachine(req))));
     }
     res.writeHead(200, { 'content-type': MIME[path.extname(full)] || 'application/octet-stream', 'cache-control': 'no-store' });

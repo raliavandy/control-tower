@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { clip, localDay, writeJsonAtomic } from '../lib/util.mjs';
 
 export const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o4-mini'];
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -31,7 +32,6 @@ function estimateCost(model, input, output) {
 let CHATS_DIR = null;
 export function configureOpenAI(dir) { CHATS_DIR = path.join(dir, 'openai-chats'); }
 
-const clip = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) + '…' : s || '');
 const fileFor = (id) => path.join(CHATS_DIR, `${id}.json`);
 
 function readChat(id) {
@@ -40,9 +40,8 @@ function readChat(id) {
 
 function writeChat(chat) {
   fs.mkdirSync(CHATS_DIR, { recursive: true });
-  const tmp = fileFor(chat.id) + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(chat, null, 2), 'utf8');
-  fs.renameSync(tmp, fileFor(chat.id));
+  writeJsonAtomic(fileFor(chat.id), chat);
+  chatCache.delete(chat.id); // the file just changed under it; next read should see the new stat
 }
 
 export function openaiHas(id) {
@@ -51,6 +50,7 @@ export function openaiHas(id) {
 }
 
 export function openaiDelete(id) {
+  chatCache.delete(id);
   try { fs.rmSync(fileFor(id), { force: true }); return true; } catch { return false; }
 }
 
@@ -78,6 +78,24 @@ function statusFor(chat, now) {
   return silent > HANDBACK_MS ? 'done' : 'waiting-for-you';
 }
 
+// Reading, parsing and counting every chat's messages is the expensive part of a poll, and it
+// only needs redoing when the file itself changed - mirrors server.mjs's own digestCache.
+const chatCache = new Map(); // id -> { mtimeMs, size, chat, userTurns, assistantTurns }
+
+function loadChatCached(id, stat) {
+  const hit = chatCache.get(id);
+  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit;
+  const chat = readChat(id);
+  if (!chat) { chatCache.delete(id); return null; }
+  const entry = {
+    mtimeMs: stat.mtimeMs, size: stat.size, chat,
+    userTurns: chat.messages.filter((m) => m.role === 'user').length,
+    assistantTurns: chat.messages.filter((m) => m.role === 'assistant').length,
+  };
+  chatCache.set(id, entry);
+  return entry;
+}
+
 export function openaiSessions(now) {
   if (!CHATS_DIR) return [];
   let files = [];
@@ -85,16 +103,21 @@ export function openaiSessions(now) {
   const out = [];
   for (const f of files) {
     if (!f.endsWith('.json') || f.endsWith('.tmp')) continue;
-    const chat = readChat(f.slice(0, -5));
-    if (!chat) continue;
+    const id = f.slice(0, -5);
+    let stat; try { stat = fs.statSync(path.join(CHATS_DIR, f)); } catch { continue; }
+    const hit = loadChatCached(id, stat);
+    if (!hit) continue;
+    const { chat, userTurns, assistantTurns } = hit;
     const lastActivity = chat.updatedAt || chat.createdAt || 0;
     const last = chat.messages[chat.messages.length - 1];
     const status = statusFor(chat, now);
-    const userTurns = chat.messages.filter((m) => m.role === 'user').length;
-    const assistantTurns = chat.messages.filter((m) => m.role === 'assistant').length;
     out.push({
       id: chat.id,
-      alive: !!chat.streaming,
+      // Claude's own `alive` is equivalent to "not ended" (statusOf always returns 'ended' when
+      // its process is gone) - matching that here, rather than the narrower "actively streaming",
+      // is what makes a chat waiting on a reply show up in the needs-you queue, header count and
+      // desktop notification the same way a Claude session does; those all gate on `alive`.
+      alive: status !== 'ended',
       pid: null, procName: null, entrypoint: null, kind: null,
       startedAt: chat.createdAt,
       title: chat.title || (chat.messages[0]?.text ? clip(chat.messages[0].text.replace(/\s+/g, ' ').trim(), 70) : 'New chat'),
@@ -248,13 +271,21 @@ async function streamOpenAIChat({ id, message, model, apiKey, onEvent, signal })
       }
     }
   } catch (e) {
-    chat.streaming = false; chat.updatedAt = Date.now(); writeChat(chat);
+    // Stop or a dropped connection still means whatever text already streamed to the browser is
+    // real and was already shown - losing it from the saved transcript would make the chat file
+    // silently disagree with what the user just watched arrive.
+    persistTurn(chat, full, usage, useModel, text);
     if (e.name === 'AbortError') { onEvent({ type: 'fleet_end', ok: false, error: 'stopped' }); return; }
     onEvent({ type: 'stderr', text: String(e.message || e) });
     onEvent({ type: 'fleet_end', ok: false, error: 'stream interrupted: ' + String(e.message || e) });
     return;
   }
 
+  persistTurn(chat, full, usage, useModel, text);
+  onEvent({ type: 'fleet_end', ok: true, exit: 0, error: null });
+}
+
+function persistTurn(chat, full, usage, useModel, userText) {
   chat.streaming = false;
   chat.updatedAt = Date.now();
   if (full) {
@@ -265,10 +296,8 @@ async function streamOpenAIChat({ id, message, model, apiKey, onEvent, signal })
       usage: usage ? { input, output, cost: estimateCost(useModel, input, output) } : null,
     });
   }
-  if (!chat.title) chat.title = clip(text.replace(/\s+/g, ' ').trim(), 70);
+  if (!chat.title) chat.title = clip(userText.replace(/\s+/g, ' ').trim(), 70);
   writeChat(chat);
-
-  onEvent({ type: 'fleet_end', ok: true, exit: 0, error: null });
 }
 
 /* Mirrors server.mjs's own usageEntries() shape exactly, so buildUsage() can bump the same
@@ -281,8 +310,11 @@ export function openaiUsageEntries() {
   const out = [];
   for (const f of files) {
     if (!f.endsWith('.json') || f.endsWith('.tmp')) continue;
-    const chat = readChat(f.slice(0, -5));
-    if (!chat) continue;
+    const id = f.slice(0, -5);
+    let stat; try { stat = fs.statSync(path.join(CHATS_DIR, f)); } catch { continue; }
+    const hit = loadChatCached(id, stat);
+    if (!hit) continue;
+    const { chat } = hit;
     for (const m of chat.messages) {
       if (m.role !== 'assistant' || !m.usage) continue;
       out.push({
@@ -298,10 +330,4 @@ export function openaiUsageEntries() {
     }
   }
   return out;
-}
-
-function localDay(ts) {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return 'unknown';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

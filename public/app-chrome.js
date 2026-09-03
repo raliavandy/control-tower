@@ -2,13 +2,14 @@
 
 /* ------------------------------------------------------------------ chrome */
 
+function setFilter(next) {
+  filter = next; store.set('filter', filter);
+  for (const b of document.querySelectorAll('#filters button')) b.classList.toggle('on', b.dataset.filter === filter);
+}
+
 for (const b of document.querySelectorAll('#filters button')) {
   b.classList.toggle('on', b.dataset.filter === filter);
-  b.addEventListener('click', () => {
-    filter = b.dataset.filter; store.set('filter', filter);
-    for (const o of document.querySelectorAll('#filters button')) o.classList.toggle('on', o === b);
-    render();
-  });
+  b.addEventListener('click', () => { setFilter(b.dataset.filter); render(); });
 }
 
 for (const b of document.querySelectorAll('#views button')) {

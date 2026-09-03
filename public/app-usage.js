@@ -20,7 +20,7 @@ const tokens = (n) => {
 };
 const dayLabel = (iso) => {
   const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return when(new Date(y, m - 1, d).getTime());
 };
 
 async function loadUsage() {
@@ -205,8 +205,9 @@ function paintRanks(el, rows, key) {
 function paintUsage() {
   if (!usageData) { $('#usage-note').textContent = 'counting your transcripts…'; return; }
   const all = usageData.days;
-  const last = (n) => sumOf(windowOf(n));
   const today = all.find((d) => d.date === usageData.today) || blankDay(usageData.today);
+  const week = windowOf(7), month = windowOf(30);
+  const weekSum = sumOf(week), monthSum = sumOf(month);
 
   // Only ever shown if a cost actually exists. On a subscription plan nothing on disk carries
   // one for Claude, and a row of $0.00 would be worse than saying so plainly. OpenAI is metered,
@@ -227,8 +228,8 @@ function paintUsage() {
 
   $('#usage-tiles').replaceChildren(
     tile('today', today, `${today.requests} requests · ${tokens(today.cacheRead)} from cache`),
-    tile('last 7 days', last(7), `${last(7).requests} requests · ${windowOf(7).filter((d) => d.requests).length} active`),
-    tile('last 30 days', last(30), `${last(30).requests} requests · ${windowOf(30).filter((d) => d.requests).length} active`),
+    tile('last 7 days', weekSum, `${weekSum.requests} requests · ${week.filter((d) => d.requests).length} active`),
+    tile('last 30 days', monthSum, `${monthSum.requests} requests · ${month.filter((d) => d.requests).length} active`),
     tile('all time', usageData.totals, `${usageData.totals.requests.toLocaleString()} requests · ${tokens(usageData.totals.cacheRead)} from cache`),
   );
 

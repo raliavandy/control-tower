@@ -71,23 +71,17 @@ function applyProviderChrome() {
   fillChatSelects();
 }
 
+function fillSelect(select, items, current) {
+  select.replaceChildren(h('option', '', 'session default'));
+  select.firstChild.value = '';
+  for (const item of items) { const o = h('option', '', item); o.value = item; select.append(o); }
+  select.value = current;
+}
+
 function fillChatSelects() {
   const caps = providerOf({ provider: activeProvider() });
-  const modelList = caps.models || MODELS;
-  const effortList = caps.efforts === null ? EFFORTS : caps.efforts;
-
-  const model = $('#chat-model');
-  model.replaceChildren(h('option', '', 'session default'));
-  model.firstChild.value = '';
-  for (const m of modelList) { const o = h('option', '', m); o.value = m; model.append(o); }
-  model.value = chatModel;
-
-  const effort = $('#chat-effort');
-  effort.replaceChildren(h('option', '', 'session default'));
-  effort.firstChild.value = '';
-  for (const e of effortList) { const o = h('option', '', e); o.value = e; effort.append(o); }
-  effort.value = chatEffort;
-
+  fillSelect($('#chat-model'), caps.models || MODELS, chatModel);
+  fillSelect($('#chat-effort'), caps.efforts === null ? EFFORTS : caps.efforts, chatEffort);
   $('#chat-stance').value = chatStance;
 }
 

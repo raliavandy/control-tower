@@ -52,7 +52,7 @@ let sessions = [];
 // { claude: {label, kind, configured, canResumeInTerminal, hasFolder, hasStance, models, efforts}, ... }
 let providers = { claude: { label: 'Claude Code', kind: 'cli', configured: true, canResumeInTerminal: true, hasFolder: true, hasStance: true, models: null, efforts: null } };
 const providerOf = (s) => providers[s.provider] || providers.claude;
-const assistantLabel = (providerId) => (providerId === 'openai' ? 'chatgpt' : 'claude');
+const assistantLabel = (providerId) => (providers[providerId]?.label || 'Claude').toLowerCase();
 let filter = store.get('filter', 'live');
 let groupBy = store.get('groupby', 'none');
 let view = store.get('view', 'sessions');

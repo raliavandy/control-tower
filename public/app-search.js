@@ -87,9 +87,7 @@ function setView(next) {
 function jumpTo(id) {
   setView('sessions');
   if (!visible().some((s) => s.id === id)) {
-    filter = 'all';
-    store.set('filter', filter);
-    for (const b of document.querySelectorAll('#filters button')) b.classList.toggle('on', b.dataset.filter === filter);
+    setFilter('all');
     delete dismissed[id];
     store.set('dismissed', dismissed);
     render();

@@ -49,27 +49,48 @@ function migrateSections() {
   if (touched) saveSections();
 }
 
+// Rebuilding every button (and its listeners) from scratch on every state push and every search
+// keystroke was wasteful for a nav that almost never changes shape - this diffs by section id
+// instead, the same way render() diffs cards, and only touches what actually moved or changed.
+const sectionButtons = new Map(); // section id -> { btn, nameEl, countEl }
+let allSectionsBtn = null;
+
 function paintSections() {
   const nav = $('#sections');
   const add = $('#section-add');
-  nav.replaceChildren();
 
-  const all = h('button', 'tabgroup' + (sectionId ? '' : ' on'), 'everything');
-  all.title = 'Every session — no section filter';
-  all.addEventListener('click', () => applySection(''));
-  nav.append(all);
+  if (!allSectionsBtn) {
+    // index.html already ships this button (data-section="") so the nav isn't empty before the
+    // first script runs - reuse it rather than leaving it in place and adding a second one.
+    allSectionsBtn = nav.querySelector('[data-section=""]');
+    allSectionsBtn.addEventListener('click', () => applySection(''));
+  }
+  allSectionsBtn.classList.toggle('on', !sectionId);
+
+  const keep = new Set(sectionList.map((s) => s.id));
+  for (const [id, entry] of sectionButtons) if (!keep.has(id)) { entry.btn.remove(); sectionButtons.delete(id); }
 
   for (const section of sectionList) {
-    const b = h('button', 'tabgroup' + (section.id === sectionId ? ' on' : ''));
-    b.append(h('span', 'tabgroup-name', section.name));
-    b.append(h('span', 'count', String(section.members.length)));
-    b.title = `${section.members.length} chat${section.members.length === 1 ? '' : 's'} in this section` +
+    let entry = sectionButtons.get(section.id);
+    if (!entry) {
+      const btn = h('button', 'tabgroup');
+      const nameEl = h('span', 'tabgroup-name');
+      const countEl = h('span', 'count');
+      btn.append(nameEl, countEl);
+      btn.addEventListener('click', () => applySection(section.id));
+      btn.addEventListener('dblclick', (e) => { e.preventDefault(); renameSection(section); });
+      btn.addEventListener('contextmenu', (e) => { e.preventDefault(); deleteSection(section); });
+      entry = { btn, nameEl, countEl };
+      sectionButtons.set(section.id, entry);
+    }
+    entry.btn.classList.toggle('on', section.id === sectionId);
+    if (entry.nameEl.textContent !== section.name) entry.nameEl.textContent = section.name;
+    const countText = String(section.members.length);
+    if (entry.countEl.textContent !== countText) entry.countEl.textContent = countText;
+    entry.btn.title = `${section.members.length} chat${section.members.length === 1 ? '' : 's'} in this section` +
       '\nAdd or remove them from the "sections" link on a card.' +
       '\nDouble-click to rename · right-click to delete';
-    b.addEventListener('click', () => applySection(section.id));
-    b.addEventListener('dblclick', (e) => { e.preventDefault(); renameSection(section); });
-    b.addEventListener('contextmenu', (e) => { e.preventDefault(); deleteSection(section); });
-    nav.append(b);
+    nav.append(entry.btn); // a no-op move when the order hasn't changed
   }
   nav.append(add);
 }
