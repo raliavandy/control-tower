@@ -4,11 +4,12 @@ rem Runs the server in a MINIMISED window so it never sits on top of the dashboa
 rem It stays in the taskbar as "Rals Cockpit" - close that window to stop the server.
 cd /d "%~dp0"
 where node >nul 2>&1 || (echo Node.js is required but was not found on PATH. & pause & exit /b 1)
+if not defined FLEET_PORT set FLEET_PORT=7457
 
 rem Already running? Just open the page instead of starting a second one.
-netstat -ano | findstr /r /c:"LISTENING.*:7457 " >nul 2>&1 && (
+netstat -ano | findstr /r /c:"LISTENING.*:%FLEET_PORT% " >nul 2>&1 && (
   echo Rals Cockpit is already running - opening it.
-  start "" "http://localhost:7457/"
+  start "" "http://localhost:%FLEET_PORT%/"
   exit /b 0
 )
 

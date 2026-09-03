@@ -14,7 +14,7 @@ import {
   configureOpenAI, openaiHas, openaiSessions, openaiReadConversation, openaiDelete, openaiUnpin,
   runOpenAIChat, testOpenAIKey, OPENAI_MODELS, openaiUsageEntries, openaiChatFiles,
 } from './server/providers/openai.mjs';
-import { clip, localDay } from './server/lib/util.mjs';
+import { clip, localDay, writeJsonAtomic } from './server/lib/util.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -382,7 +382,7 @@ const idleMarks = (() => {
 })();
 
 function saveIdleMarks() {
-  try { fs.writeFileSync(IDLE_MARKS_FILE, JSON.stringify(Object.fromEntries(idleMarks), null, 2)); }
+  try { writeJsonAtomic(IDLE_MARKS_FILE, Object.fromEntries(idleMarks)); }
   catch { /* a lost mark is not worth taking the server down for */ }
 }
 
@@ -1383,10 +1383,9 @@ function savePrefs(patch) {
     if (!PREF_KEYS.has(k)) continue;         // ignore anything we do not recognise
     if (v === null) delete next[k]; else next[k] = v;
   }
-  const text = JSON.stringify(next, null, 2);
-  if (text.length > PREFS_MAX) throw new Error('that is more preference data than this keeps');
+  if (JSON.stringify(next, null, 2).length > PREFS_MAX) throw new Error('that is more preference data than this keeps');
   prefs = next;
-  try { fs.writeFileSync(PREFS_FILE, text, 'utf8'); } catch { /* memory copy still serves this run */ }
+  try { writeJsonAtomic(PREFS_FILE, next); } catch { /* memory copy still serves this run */ }
   return prefs;
 }
 
@@ -1794,6 +1793,11 @@ const inPageChats = new Map();
   }
 })();
 
+function saveChatsFile() {
+  try { writeJsonAtomic(CHATS_FILE, { chats: [...inPageChats.values()] }); }
+  catch { /* the board still works from memory for this run */ }
+}
+
 function rememberChat(id, cwd) {
   const prev = inPageChats.get(id);
   inPageChats.set(id, {
@@ -1802,9 +1806,7 @@ function rememberChat(id, cwd) {
     lastAt: Date.now(),
     turns: (prev?.turns || 0) + 1,
   });
-  try {
-    fs.writeFileSync(CHATS_FILE, JSON.stringify({ chats: [...inPageChats.values()] }, null, 2), 'utf8');
-  } catch { /* the board still works from memory for this run */ }
+  saveChatsFile();
 }
 
 const RUN_TTL = 30 * 60 * 1000;
@@ -2152,8 +2154,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/update-check') {
       if (!REPO_SLUG) return json(res, 200, { current: APP_VERSION, error: 'no repository configured' });
       try {
+        // An unreachable/stalled network (a captive portal, a dropped connection) would otherwise
+        // hang on fetch's own multi-minute default rather than failing back to the app quickly.
         const r = await fetch(`https://api.github.com/repos/${REPO_SLUG}/releases/latest`, {
           headers: { 'user-agent': 'ralias-cockpit', accept: 'application/vnd.github+json' },
+          signal: AbortSignal.timeout(8000),
         });
         if (r.status === 404) return json(res, 200, { current: APP_VERSION, latest: null, upToDate: true });
         if (!r.ok) return json(res, 200, { current: APP_VERSION, error: `GitHub returned ${r.status}` });
@@ -2164,7 +2169,8 @@ const server = http.createServer(async (req, res) => {
           url: data.html_url || `https://github.com/${REPO_SLUG}/releases`,
         });
       } catch (e) {
-        return json(res, 200, { current: APP_VERSION, error: 'could not reach GitHub: ' + String(e.message || e) });
+        const timedOut = e.name === 'TimeoutError' || e.name === 'AbortError';
+        return json(res, 200, { current: APP_VERSION, error: timedOut ? 'GitHub took too long to respond' : 'could not reach GitHub: ' + String(e.message || e) });
       }
     }
     // Method-guarded: this path also takes a POST, and the read would otherwise swallow it.
@@ -2385,7 +2391,7 @@ const server = http.createServer(async (req, res) => {
         // For Claude this only unpins the card - the transcript lives on independently on disk.
         if (inPageChats.has(id)) {
           inPageChats.delete(id);
-          try { fs.writeFileSync(CHATS_FILE, JSON.stringify({ chats: [...inPageChats.values()] }, null, 2), 'utf8'); } catch {}
+          saveChatsFile();
           return json(res, 200, { ok: true, id, note: 'the transcript itself is untouched' });
         }
         // For an API-key provider the local file *is* the only copy, so "forget" here only

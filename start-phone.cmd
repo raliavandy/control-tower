@@ -6,9 +6,10 @@ rem
 rem This one does NOT minimise: you need to read the access code out of the window.
 cd /d "%~dp0"
 where node >nul 2>&1 || (echo Node.js is required but was not found on PATH. & pause & exit /b 1)
+if not defined FLEET_PORT set FLEET_PORT=7457
 
-netstat -ano | findstr /r /c:"LISTENING.*:7457 " >nul 2>&1 && (
-  echo Something is already listening on 7457 - stop that window first.
+netstat -ano | findstr /r /c:"LISTENING.*:%FLEET_PORT% " >nul 2>&1 && (
+  echo Something is already listening on %FLEET_PORT% - stop that window first.
   pause
   exit /b 1
 )

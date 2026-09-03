@@ -97,12 +97,13 @@ await describe('prefs', async () => {
 await describe('providers', async () => {
   const p = await getJson('/api/providers');
   ok(p.claude?.configured === true, 'Claude Code is always registered and configured');
-  for (const key of ['label', 'kind', 'configured', 'canResumeInTerminal', 'hasFolder', 'hasStance']) {
+  for (const key of ['label', 'kind', 'configured', 'canResumeInTerminal', 'hasFolder', 'hasStance', 'hasImages', 'deletable']) {
     ok(key in p.claude, `claude carries ${key}`);
     ok(key in p.openai, `openai carries ${key}`);
   }
   ok(Array.isArray(p.openai.models) && p.openai.models.length > 0, 'openai comes with a curated model list');
   ok(p.openai.canResumeInTerminal === false, 'there is no terminal to resume an API-only chat in');
+  ok(p.claude.deletable === false && p.openai.deletable === true, 'only a provider with no independent copy can be deleted through this app');
 });
 
 await describe('update-check', async () => {
