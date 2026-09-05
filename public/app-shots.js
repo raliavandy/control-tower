@@ -1,4 +1,4 @@
-/* Rals Cockpit — pasted screenshots. Loaded after app-core.js. */
+/* Control Tower — pasted screenshots. Loaded after app-core.js. */
 
 /* -------------------------------------------------- pasted screenshots
 

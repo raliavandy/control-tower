@@ -1,4 +1,4 @@
-/* Rals Cockpit - pixel mascots.
+/* Control Tower - pixel mascots.
    Each sprite is 12x12 string art turned into <rect>s, so it recolours itself from whatever
    `color` the card sets, and animates as a two-frame flipbook driven by one CSS keyframe pair.
    '#' = body · 'o' = cut-out (eyes) · '-' = thin cut-out (lids / mouth) · '.' = nothing. */

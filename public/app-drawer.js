@@ -1,4 +1,4 @@
-/* Rals Cockpit — the conversation panel. Loaded after app-chat.js. */
+/* Control Tower — the conversation panel. Loaded after app-chat.js. */
 
 /* ------------------------------------------------------------------ drawer */
 

@@ -1,4 +1,4 @@
-/* Rals Cockpit — the board, and your own sections. Loaded after app-cards.js. */
+/* Control Tower — the board, and your own sections. Loaded after app-cards.js. */
 
 /* ------------------------------------------------------------------ board render */
 

@@ -1,4 +1,4 @@
-/* Rals Cockpit — top-bar wiring, keyboard, the live feed, and boot. Loaded after app-drawer.js. */
+/* Control Tower — top-bar wiring, keyboard, the live feed, and boot. Loaded after app-drawer.js. */
 
 /* ------------------------------------------------------------------ chrome */
 

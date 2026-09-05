@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something in Rals Cockpit isn't working as expected
+about: Something in Control Tower isn't working as expected
 title: "[Bug] "
 labels: bug
 ---

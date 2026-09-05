@@ -1,4 +1,4 @@
-/* Rals Cockpit — the usage view. Loaded after app-inventory.js. */
+/* Control Tower — the usage view. Loaded after app-inventory.js. */
 
 /* -------------------------------------------------- usage
 

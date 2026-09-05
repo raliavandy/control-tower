@@ -1,4 +1,4 @@
-/* Rals Cockpit — the in-page chat. Loaded after app-search.js. */
+/* Control Tower — the in-page chat. Loaded after app-search.js. */
 
 /* -------------------------------------------------- in-page chat
 

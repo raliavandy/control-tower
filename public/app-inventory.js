@@ -1,4 +1,4 @@
-/* Rals Cockpit — the MCP / Skills / Rules panels and their editors. Loaded after app-menus.js. */
+/* Control Tower — the MCP / Skills / Rules panels and their editors. Loaded after app-menus.js. */
 
 /* ------------------------------------------------------------------ toolbox panels */
 

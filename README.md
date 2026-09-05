@@ -1,10 +1,10 @@
-# Rals Cockpit
+# Control Tower
 
 One screen for every Claude Code session on this machine — what each one is doing,
 which ones are stuck waiting on you, and a reply box for each.
 
-(The folder is now called `ralias-cockpit`. The `FLEET_*` environment variables keep their
-name — renaming those would break saved settings for no gain.)
+(The `FLEET_*` environment variables keep their name — renaming those would break saved
+settings for no gain.)
 
 Double-click **start.cmd**. It serves <http://localhost:7457/> and opens your browser.
 No dependencies, no install, and the server binds to 127.0.0.1 only — nothing leaves the machine,
@@ -16,7 +16,7 @@ updates** in the settings menu (never automatic) asks GitHub what the latest rel
 no macOS/Linux support yet.
 
 The server window opens **minimised** so it never sits on top of the dashboard — it stays in the
-taskbar as *Rals Cockpit*, and closing that window stops the server. Run `start.cmd` again while
+taskbar as *Control Tower*, and closing that window stops the server. Run `start.cmd` again while
 it is already up and it just opens the page instead of starting a second one.
 
 Prefer no window at all? **start-tray.cmd** runs the same server with a system tray icon instead —
@@ -288,8 +288,8 @@ all — a system tray icon takes its place. Right-click it (or double-click to o
 
 | | |
 |---|---|
-| **Open Rals Cockpit** | opens the dashboard in your browser |
-| **View log** | the server's own stdout/stderr, since there's no console left to read it from — `%TEMP%\ralias-cockpit-tray.log` |
+| **Open Control Tower** | opens the dashboard in your browser |
+| **View log** | the server's own stdout/stderr, since there's no console left to read it from — `%TEMP%\control-tower-tray.log` |
 | **Quit** | stops the server and removes the icon |
 
 It's the same detection as `start.cmd`: if the server is already up on the configured port,

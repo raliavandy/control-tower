@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Rals Cockpit - a local control screen for every Claude Code session on this machine.
+// Control Tower - a local control screen for every Claude Code session on this machine.
 // Zero dependencies. Reads ~/.claude, serves a UI on 127.0.0.1, never talks to the network.
 
 import fs from 'node:fs';
@@ -1213,7 +1213,7 @@ const MODEL_SHAPE = /^[A-Za-z0-9._[\]-]{1,64}$/;
 // Open a terminal running claude: resuming `id` when given one, otherwise a brand new chat.
 // The message goes through a temp file, so nothing in it needs shell escaping.
 function launchTerminal({ id, cwd, message, images, model, effort }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralias-cockpit-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-tower-'));
   const shots = writePastedImages(dir, images);
   let text = typeof message === 'string' ? message.trim() : '';
   if (shots.length) {
@@ -1245,7 +1245,7 @@ function launchTerminal({ id, cwd, message, images, model, effort }) {
   const script = [
     `$ErrorActionPreference = 'Continue'`,
     cwd ? `Set-Location -LiteralPath ${psQuote(cwd)}` : '',
-    `Write-Host 'Rals Cockpit: ${id ? 'resuming session ' + id : 'new chat'}' -ForegroundColor Cyan`,
+    `Write-Host 'Control Tower: ${id ? 'resuming session ' + id : 'new chat'}' -ForegroundColor Cyan`,
     body,
   ].filter(Boolean).join('\n');
   const scriptFile = path.join(dir, 'resume.ps1');
@@ -1633,7 +1633,7 @@ function writeAtomic(file, text) {
   if (/\.json$/i.test(file)) {
     try { JSON.parse(text); } catch (e) { throw new Error('that is not valid JSON: ' + e.message); }
   }
-  const tmp = file + '.cockpit-tmp';
+  const tmp = file + '.control-tower-tmp';
   fs.writeFileSync(tmp, text, 'utf8');
   if (/\.json$/i.test(file)) {
     // Read it back off disk before it becomes the real thing.
@@ -1856,7 +1856,7 @@ function startChat({ id, cwd, message, images, model, effort, stance, fromThisPc
   if (!stat.isDirectory()) throw new Error('that is not a folder');
 
   const text = String(message || '').trim();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralias-cockpit-chat-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-tower-chat-'));
   const shots = writePastedImages(dir, images);
   const prompt = shots.length
     ? (text ? text + '\n\n' : '') + shots.map((f) => `[pasted image] ${f}`).join('\n') +
@@ -2051,7 +2051,7 @@ function lanAddresses() {
 }
 
 const UNLOCK_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Rals Cockpit</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Control Tower</title>
 <style>
 :root{color-scheme:dark}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0f14;color:#e6edf5;
@@ -2067,7 +2067,7 @@ button{width:100%;margin-top:12px;padding:15px;font:600 15px inherit;border:0;bo
 background:#d97757;color:#1a0f09;cursor:pointer}
 .bad{color:#f87171;font-size:13px;margin-top:12px;min-height:19px}
 </style></head><body>
-<form id="f"><h1>Rals&nbsp;Cockpit</h1>
+<form id="f"><h1>Control&nbsp;Tower</h1>
 <p>Enter the access code shown in the terminal on your PC.</p>
 <input id="k" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" autofocus>
 <button type="submit">Unlock</button><div class="bad" id="e"></div></form>
@@ -2109,7 +2109,7 @@ function tick() {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (!LAN && !localHost(req)) { res.writeHead(403).end('Rals Cockpit is loopback only'); return; }
+  if (!LAN && !localHost(req)) { res.writeHead(403).end('Control Tower is loopback only'); return; }
   const url = new URL(req.url, 'http://127.0.0.1');
   const p = url.pathname;
 
@@ -2157,7 +2157,7 @@ const server = http.createServer(async (req, res) => {
         // An unreachable/stalled network (a captive portal, a dropped connection) would otherwise
         // hang on fetch's own multi-minute default rather than failing back to the app quickly.
         const r = await fetch(`https://api.github.com/repos/${REPO_SLUG}/releases/latest`, {
-          headers: { 'user-agent': 'ralias-cockpit', accept: 'application/vnd.github+json' },
+          headers: { 'user-agent': 'control-tower', accept: 'application/vnd.github+json' },
           signal: AbortSignal.timeout(8000),
         });
         if (r.status === 404) return json(res, 200, { current: APP_VERSION, latest: null, upToDate: true });
@@ -2457,7 +2457,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, LAN ? '0.0.0.0' : '127.0.0.1', () => {
   setInterval(tick, POLL_MS).unref?.();
   const url = `http://localhost:${PORT}/`;
-  console.log(`Rals Cockpit  ->  ${url}`);
+  console.log(`Control Tower  ->  ${url}`);
   console.log(`watching      ->  ${CLAUDE_DIR}`);
   if (LAN) {
     const ips = lanAddresses();
@@ -2478,7 +2478,7 @@ server.listen(PORT, LAN ? '0.0.0.0' : '127.0.0.1', () => {
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is already in use - Rals Cockpit may already be running at http://localhost:${PORT}/`);
+    console.error(`Port ${PORT} is already in use - Control Tower may already be running at http://localhost:${PORT}/`);
     process.exit(1);
   }
   throw e;

@@ -1,7 +1,7 @@
-/* Rals Cockpit — element helpers, settings, shared state, focus handling.
+/* Control Tower — element helpers, settings, shared state, focus handling.
    Part of a set loaded in order by index.html; they share one top-level scope. */
 
-/* Rals Cockpit - front end. Keyed rendering so live updates never eat what you're typing. */
+/* Control Tower - front end. Keyed rendering so live updates never eat what you're typing. */
 
 const $ = (sel) => document.querySelector(sel);
 const board = $('#board');

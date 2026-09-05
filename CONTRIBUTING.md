@@ -1,6 +1,6 @@
 # Contributing
 
-Rals Cockpit is small and deliberately zero-dependency, with no build step. Keep contributions in
+Control Tower is small and deliberately zero-dependency, with no build step. Keep contributions in
 that spirit.
 
 ## Before you start

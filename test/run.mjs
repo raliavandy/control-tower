@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Rals Cockpit test runner.
+/* Control Tower test runner.
  *
  *   node test/run.mjs                 # everything
  *   node test/run.mjs guards          # only suites whose name or file matches "guards"
@@ -32,9 +32,9 @@ async function startServer() {
       FLEET_NO_OPEN: '1',
       FLEET_DRY_RUN: '1',
       // A scratch prefs file, so a test run never rearranges your real dashboard.
-      FLEET_PREFS_FILE: path.join(os.tmpdir(), `cockpit-test-prefs-${process.pid}.json`),
+      FLEET_PREFS_FILE: path.join(os.tmpdir(), `control-tower-test-prefs-${process.pid}.json`),
       // Same idea for provider keys - a test run must never read or overwrite a real saved key.
-      FLEET_PROVIDER_KEYS_FILE: path.join(os.tmpdir(), `cockpit-test-provider-keys-${process.pid}.json`),
+      FLEET_PROVIDER_KEYS_FILE: path.join(os.tmpdir(), `control-tower-test-provider-keys-${process.pid}.json`),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

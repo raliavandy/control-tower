@@ -1,4 +1,4 @@
-/* Rals Cockpit — a session card, and expanding one in place. Loaded after app-shots.js. */
+/* Control Tower — a session card, and expanding one in place. Loaded after app-shots.js. */
 
 /* -------------------------------------------------- expanding a card
 

@@ -1,16 +1,16 @@
 {
-  "name": "ralias-cockpit",
+  "name": "control-tower",
   "version": "1.0.0",
   "private": true,
   "description": "A zero-dependency local web dashboard for monitoring and interacting with every Claude Code session on your machine, with an optional ChatGPT provider.",
   "license": "MIT",
-  "homepage": "https://github.com/raliavandy/ralias-cockpit#readme",
+  "homepage": "https://github.com/raliavandy/control-tower#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/raliavandy/ralias-cockpit.git"
+    "url": "git+https://github.com/raliavandy/control-tower.git"
   },
   "bugs": {
-    "url": "https://github.com/raliavandy/ralias-cockpit/issues"
+    "url": "https://github.com/raliavandy/control-tower/issues"
   },
   "author": "raliavandy",
   "engines": {

@@ -1,4 +1,4 @@
-/* Rals Cockpit — popover menus, model and effort. Loaded after app-board.js. */
+/* Control Tower — popover menus, model and effort. Loaded after app-board.js. */
 
 /* -------------------------------------------------- little menus
 
@@ -268,7 +268,7 @@ function paintHeader() {
   dismissDone.textContent = `dismiss ${doneNow.length} done`;
   dismissDone.title = doneNow.map((s) => s.title).join('\n');
 
-  document.title = needs.length ? `(${needs.length}) Rals Cockpit` : 'Rals Cockpit';
+  document.title = needs.length ? `(${needs.length}) Control Tower` : 'Control Tower';
   PX.favicon(blocked ? 'blocked' : needs.length ? 'waiting-for-you' : live.length ? 'working' : 'ended');
   // No banner for it - the queue only shows as a badge on the card, plus the `a` shortcut.
   upFirstId = st.firstUp && shown.some((s) => s.id === st.firstUp) ? st.firstUp : null;

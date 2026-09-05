@@ -1,4 +1,4 @@
-/* Rals Cockpit — deep search, and switching view. Loaded after app-usage.js. */
+/* Control Tower — deep search, and switching view. Loaded after app-usage.js. */
 
 /* -------------------------------------------------- deep search
 

@@ -1,4 +1,4 @@
-/* Rals Cockpit — a QR encoder, so pairing a phone is a scan instead of typing an IP address and
+/* Control Tower — a QR encoder, so pairing a phone is a scan instead of typing an IP address and
    an eight-character code.
  *
  * Byte mode, versions 1-6, all four error-correction levels — up to 134 characters, and a pairing

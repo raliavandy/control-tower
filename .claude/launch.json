@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "rals-cockpit",
+      "name": "control-tower",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.mjs"],
       "port": 7457

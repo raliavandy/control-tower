@@ -1,7 +1,7 @@
-# Rals Cockpit - system tray mode.
+# Control Tower - system tray mode.
 #
 # Runs the server with no console window at all, and puts a tray icon in its place: double-click
-# (or "Open Rals Cockpit") opens the dashboard, "View log" shows what the server has printed since
+# (or "Open Control Tower") opens the dashboard, "View log" shows what the server has printed since
 # it isn't going to a visible console any more, and "Quit" stops the server and removes the icon.
 # Launched by start-tray.cmd, which hides this script's own PowerShell window too.
 
@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public class RalsCockpitJob : IDisposable {
+public class ControlTowerJob : IDisposable {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr a, string name);
     [DllImport("kernel32.dll")] static extern bool SetInformationJobObject(IntPtr job, int cls, IntPtr info, uint len);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr proc);
@@ -28,7 +28,7 @@ public class RalsCockpitJob : IDisposable {
     [StructLayout(LayoutKind.Sequential)]
     struct EXTENDED_LIMIT { public BASIC_LIMIT Basic; public IO_COUNTERS Io; public UIntPtr i, j, k, l; }
     IntPtr handle;
-    public RalsCockpitJob() {
+    public ControlTowerJob() {
         handle = CreateJobObject(IntPtr.Zero, null);
         var info = new EXTENDED_LIMIT();
         info.Basic.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -48,14 +48,14 @@ Set-Location $here
 
 $port = if ($env:FLEET_PORT) { $env:FLEET_PORT } else { '7457' }
 $url = "http://localhost:$port/"
-$logFile = Join-Path $env:TEMP 'ralias-cockpit-tray.log'
+$logFile = Join-Path $env:TEMP 'control-tower-tray.log'
 $nodePath = (Get-Command node -ErrorAction Stop).Source
 
 # The tray icon is how you open the dashboard here, so the server doesn't need to pop a browser
 # tab on its own the way start.cmd's console-window mode does.
 $env:FLEET_NO_OPEN = '1'
 
-$job = New-Object RalsCockpitJob
+$job = New-Object ControlTowerJob
 $serverProc = Start-Process -FilePath $nodePath -ArgumentList 'server.mjs' -WorkingDirectory $here `
   -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err" -PassThru
 [void]$job.AddProcess($serverProc.Handle)
@@ -63,14 +63,14 @@ $serverProc = Start-Process -FilePath $nodePath -ArgumentList 'server.mjs' -Work
 $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($nodePath)
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
-$openItem = $menu.Items.Add('Open Rals Cockpit')
+$openItem = $menu.Items.Add('Open Control Tower')
 $logItem = $menu.Items.Add('View log')
 [void]$menu.Items.Add('-')
 $quitItem = $menu.Items.Add('Quit')
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Icon = $icon
-$tray.Text = 'Rals Cockpit'
+$tray.Text = 'Control Tower'
 $tray.ContextMenuStrip = $menu
 $tray.Visible = $true
 
@@ -79,7 +79,7 @@ $openItem.Add_Click($openAction)
 $tray.Add_DoubleClick($openAction)
 $logItem.Add_Click({
   if (Test-Path $logFile) { Start-Process notepad.exe $logFile }
-  else { [System.Windows.Forms.MessageBox]::Show('Nothing logged yet.', 'Rals Cockpit') | Out-Null }
+  else { [System.Windows.Forms.MessageBox]::Show('Nothing logged yet.', 'Control Tower') | Out-Null }
 })
 $quitItem.Add_Click({
   $tray.Visible = $false
@@ -94,7 +94,7 @@ $watchdog.Interval = 3000
 $watchdog.Add_Tick({
   if ($serverProc.HasExited) {
     $watchdog.Stop()
-    $tray.ShowBalloonTip(8000, 'Rals Cockpit stopped', 'The server process ended - check View log for why.', [System.Windows.Forms.ToolTipIcon]::Warning)
+    $tray.ShowBalloonTip(8000, 'Control Tower stopped', 'The server process ended - check View log for why.', [System.Windows.Forms.ToolTipIcon]::Warning)
   }
 })
 $watchdog.Start()
